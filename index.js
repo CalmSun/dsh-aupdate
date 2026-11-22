@@ -330,18 +330,24 @@ function readHistory() {
   return historyCache
 }
 
-function appendHistory(row) {
+function saveHistory(rows) {
   try {
-    const rows = readHistory().slice()
-    rows.unshift(row)
     historyCache = rows.slice(0, HISTORY_MAX)
     const file = historyPath()
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, JSON.stringify({ entries: historyCache }, null, 2) + '\n', 'utf8')
+    return true
   } catch {
     // 记不上历史不影响更新本身，绝不能让它把这一轮搞挂。
     historyCache = null
+    return false
   }
+}
+
+function appendHistory(row) {
+  const rows = readHistory().slice()
+  rows.unshift(row)
+  saveHistory(rows)
 }
 
 /**
@@ -358,11 +364,13 @@ function upgradeVerdict(target, current, tag, settings) {
   const b = parseVersion(current)
   if (a === null || b === null) return { ok: false, why: '版本号无法比较' }
   if (compareVersions(target, current) <= 0) return { ok: false, why: '已经是最新' }
-  if (a.pre !== null && tag !== 'next' && !settings.allowPrerelease) {
+  // parseVersion 对正式版返回的是空数组而不是 null，判空得看长度。
+  if (a.pre.length > 0 && tag !== 'next' && !settings.allowPrerelease) {
     return { ok: false, why: '是预发布版本，未允许' }
   }
-  if (!settings.allowMajor && a.major !== b.major) {
-    return { ok: false, why: '跨大版本（' + b.major + ' -> ' + a.major + '），未允许' }
+  // 版本段存在 core 里：core[0] 是主版本。
+  if (!settings.allowMajor && a.core[0] !== b.core[0]) {
+    return { ok: false, why: '跨大版本（' + b.core[0] + ' -> ' + a.core[0] + '），未允许' }
   }
   return { ok: true }
 }
@@ -859,6 +867,37 @@ async function runCycle(mode, ctxRef) {
   }
 }
 /**
+ * 挑出可以回滚的那一条记录。
+ *
+ * 「哪条已经被回滚过」不靠改标志位，而是从回滚记录反推：只要存在一条更晚的
+ * 回滚记录、把同一个包退回了这条的旧版本，这条就算用掉了。这样即使写历史失败，
+ * 同一个操作也不可能被重放——之前用可变标志位就踩过这个坑，第二次回滚
+ * 又摸回原始更新行，等于降级可以无限重复。
+ */
+function pickRollbackTarget(rows, entryName) {
+  const rollbacks = rows.filter((item) => item?.tag === 'rollback')
+  for (const item of rows) {
+    if (item?.name !== entryName) continue
+    if (item.tag === 'rollback') continue
+    if (item.rolledBack === true) continue
+    if (typeof item.from !== 'string' || typeof item.to !== 'string') continue
+    // 只有「更晚发生的、把这个版本退回去的」回滚才算消费了这条更新。
+    // 光看 (包名, 版本对) 会误伤：同一对版本后来又更新过一次时，
+    // 上一次的回滚记录会把新的那条也判成已经用掉。
+    const stamp = String(item.at ?? '')
+    const used = rollbacks.some((rb) =>
+      rb.name === item.name &&
+      rb.from === item.to &&
+      rb.to === item.from &&
+      String(rb.at ?? '') > stamp,
+    )
+    if (used) continue
+    return item
+  }
+  return undefined
+}
+
+/**
  * 回滚到某一次更新之前的版本。
  *
  * 只允许回滚「本插件自己装上去的那一次」：from 必须是历史上记下来的旧版本，
@@ -866,7 +905,8 @@ async function runCycle(mode, ctxRef) {
  */
 async function rollbackOne(ctxRef, entryName) {
   const settings = settingsOf(ctxRef.config)
-  const row = readHistory().find((item) => item.name === entryName && item.rolledBack !== true)
+  const rows = readHistory()
+  const row = pickRollbackTarget(rows, entryName)
   if (row === undefined) return { ok: false, reason: '没有可回滚的记录：' + entryName }
   const profileDir = profileDirOf(ctxRef.ctx)
   const profileName = basename(profileDir)
@@ -875,7 +915,8 @@ async function rollbackOne(ctxRef, entryName) {
   const outcome = await installOne(runner, profileName, profileDir, row.name, row.from)
   writeLog('rollback ' + row.name + ' ' + row.to + ' -> ' + row.from + ' -> ' + (outcome.ok ? 'ok' : 'failed: ' + outcome.detail))
   if (!outcome.ok) return { ok: false, reason: outcome.detail }
-  appendHistory({
+  const next = rows.slice()
+  next.unshift({
     at: new Date().toISOString(),
     name: row.name,
     from: row.to,
@@ -884,6 +925,7 @@ async function rollbackOne(ctxRef, entryName) {
     profile: profileName,
     rolledBack: true,
   })
+  saveHistory(next)
   let reload = { status: 'skipped', reason: '回滚完成，重启后生效' }
   if (settings.hotReload) reload = await hotApply(ctxRef.ctx, [])
   return { ok: true, name: row.name, to: row.from, reload: reload.status }
@@ -959,7 +1001,7 @@ function registerTool(ctx, config) {
           return { status: 'failed', reason: '没能完成，插件状态需要核对', checked: 0, updates: [], installed: [], reload: 'none' }
         }
       },
-    }), 'auto-update: plugin_updater')
+    }), 'dsh-aupdate: plugin_updater')
     return true
   } catch (error) {
     writeLog('cannot offer the tool: ' + oneLine(error?.message ?? error, 300))
@@ -1119,7 +1161,7 @@ function registerRoutes(ctx, ctxRef) {
     const effect = propOf(ctx, 'effect')
     const register = () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler })
     if (typeof effect === 'function') {
-      effect.call(ctx, register, 'auto-update: settings routes')
+      effect.call(ctx, register, 'dsh-aupdate: settings routes')
       writeLog('settings route ready: ' + ROUTE_PREFIX)
       return true
     }
@@ -1132,7 +1174,7 @@ function registerRoutes(ctx, ctxRef) {
   }
 }
 
-export { compareVersions, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides }
+export { compareVersions, upgradeVerdict, pickRollbackTarget, readHistory, historyPath, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides }
 
 export function apply(ctx, config) {
   const ctxRef = { ctx, config }
