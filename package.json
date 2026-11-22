@@ -1,0 +1,48 @@
+{
+  "name": "dsh-aupdate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "定时检查 DSH 插件更新，串行安装后就地生效，不重启。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CalmSun/dsh-aupdate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CalmSun/dsh-aupdate/issues"
+  },
+  "homepage": "https://github.com/CalmSun/dsh-aupdate#readme",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "auto-update"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

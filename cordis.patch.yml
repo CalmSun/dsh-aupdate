@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-aupdate
+      name: 'dsh-aupdate'
+
+  # 只插入条目，具体行为由 index.js 里的 Config 默认值与 profile 的
+  # cordis.patch.yml 覆盖决定；这里不写 config，避免和用户覆盖打架。
