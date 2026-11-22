@@ -59,8 +59,26 @@ https://github.com/CalmSun/dsh-aupdate
 | `exclude` | `[]` | 不更新的包，优先级高于 `allow` |
 | `allowMajor` | `true` | 关掉后只在同一主版本内升级 |
 | `allowPrerelease` | `false` | 关掉后不装预发布；`next` 标签不受影响 |
-| `idleOnly` | `true` | 有子任务在跑时不动代码 |
+| `idleOnly` | `true` | 忙的时候不动手（见下节） |
 | `hotReload` | `true` | 装完就地生效，否则等重启 |
+| `maxPerCycle` | `0` | 一轮最多装几个，0 表示不限 |
+| `sessionIdleMinutes` | `2` | 会话静默多少分钟才算闲，0 表示只看子任务 |
+
+## 什么时候动手
+
+「现在忙不忙」有两个独立信号，任一命中都跳过这一轮，下一轮再来：
+
+- **有子任务在跑**：换代码会把它们一并中止，所以只要探到就等。
+- **会话刚被写过**：`sessionIdleMinutes` 分钟内 `$DSH_HOME/sessions` 下有写入，
+  说明正有人在用。装包会长时间占住 pnpm 并让界面变卡，不如等他停手。
+
+光看 `agent.status` 不够——实测 turn 结束后 status 可能长时间停在 `running`。
+真按它判，自动更新会永远不落地，而界面上看不出原因。所以第二条以会话文件的
+mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不知道」，此时**不拦**
+更新——宁可照常跑，也不因为一个读不了的文件把更新永久停掉。
+
+设置页把「最近一次会话写入在几分钟前」和当前锁的持有者直接显示出来，
+不用翻日志猜为什么没更新。
 
 ## 更新记录与回滚
 
@@ -71,6 +89,27 @@ https://github.com/CalmSun/dsh-aupdate
 同一个包的 `from → to` 完全相同、且都不是回滚记录时只留最新一条：
 否则同一行失败记录会一轮一条堆满历史，真正要回的那个点反而找不到了。
 `1.0 → 1.1` 和 `1.0 → 1.2` 是两件事，不会合并。
+
+## 同时只装一个
+
+`dsh-aupdate` 自己不会同时跑两轮，但管不住别人：另一个窗口、另一个进程里
+手动 `dsh plugin add`、插件市场点安装，都会和定时轮次撞上，而 pnpm 的锁是
+按 profile 目录算的，撞上就是 `EPERM`。
+
+所以安装期间会在 profile 目录放一个 `.aupdate-install.lock`（进程号 + 时间），
+拿不到就让开并说明「另一个进程正在装」。锁超过 30 分钟视为持有者已崩，
+自动接管——否则一次崩溃会把更新永久堵死。回滚走同一把锁。
+
+## 动手前留一份现场
+
+真要安装时，先把 profile 的 `package.json`、`pnpm-lock.yaml`、
+`pnpm-workspace.yaml`、`cordis.patch.yml` 复制到
+`~/.dsh/aupdate-snapshots/<时间>/`，只留最近 3 份。
+
+这里**故意不做自动还原**。把旧 manifest 盖回去再让 pnpm 重装，等于用一次
+更长的高风险操作去修一次可能的失败，判错的代价比原问题还大。留底只是留证据，
+要不要用它由人决定。这也保证它和下面「按包回滚」不重叠：那个是「我要旧版本」，
+这个是「留个现场」。
 
 ## 工具
 
@@ -87,6 +126,11 @@ https://github.com/CalmSun/dsh-aupdate
 - 已装版本按 `package.json` 的 mtime+size 缓存，不再每轮同步读 24 次盘
 - dist-tags 带 10 分钟 TTL；批量之间让出事件循环，界面不掉帧
 - 实测一轮 24 个包耗时 3.7 s（全部命中缓存、无需安装时）
+- 会话空闲探测限深四层、逐层只 `readdir` 一次：实测本机 251 个会话文件扫一遍 36 ms
+- `maxPerCycle` 给单次占用封顶：装包期间 pnpm 锁一直握着，一轮装 20 个能把
+  profile 占住几十分钟；限个数之后剩下的下一轮接着装
+- 历史与失败表都按 `mtime+size` 判新旧，不再「读到一次就永久缓存」——
+  这两个文件在 `~/.dsh` 下跨 profile 共用，另一个进程刚写的记录必须马上能看见
 
 ## 日志
 
@@ -160,8 +204,56 @@ A successful install clears the record.
 | `exclude` | `[]` | Never update these; takes priority over `allow` |
 | `allowMajor` | `true` | When off, stay within the same major version |
 | `allowPrerelease` | `false` | When off, skip prereleases; the `next` tag is unaffected |
-| `idleOnly` | `true` | Do not touch code while subagents are running |
+| `idleOnly` | `true` | Hold off while anything is busy (see below) |
 | `hotReload` | `true` | Apply in place after install instead of waiting for a restart |
+| `maxPerCycle` | `0` | Installs per cycle; 0 means no limit |
+| `sessionIdleMinutes` | `2` | Session must be quiet this long to count as idle; 0 judges by subagents only |
+
+### When it acts
+
+Two independent signals mean "busy". Either one skips the cycle and the next one
+tries again:
+
+- **A subagent is running**: swapping code would abort it, so it waits.
+- **A session was just written**: any write under `$DSH_HOME/sessions` within
+  `sessionIdleMinutes` means someone is working. Installing holds the pnpm lock
+  for a long time and makes the UI sluggish, so it waits for a pause.
+
+`agent.status` alone is not enough — measured behaviour is that status can stay
+`running` long after a turn ends. Judging by it, updates would never land and the
+UI would show no reason why. So the second signal uses session file mtimes: those
+are disk facts. If the session directory cannot be read at all the answer is
+"unknown", and an unknown result **does not** hold the update back — running on
+schedule is better than stopping forever because one file was unreadable.
+
+The settings page shows how long ago the last session write was and who holds the
+lock, so "why has it not updated" needs no log reading.
+
+### One install at a time
+
+`dsh-aupdate` never runs two cycles at once, but it cannot control anyone else: a
+manual `dsh plugin add`, the plugin UI in another window, or a second host process
+all collide with a cycle, and pnpm's lock is per profile directory — the collision
+is an `EPERM`.
+
+So an install takes a `.aupdate-install.lock` in the profile directory (pid plus
+timestamp) and yields with a clear "another process is installing" message when it
+cannot have it. A lock older than 30 minutes is treated as a crashed holder and
+taken over — otherwise one crash would block updating forever. Rollback uses the
+same lock.
+
+### Snapshot before touching anything
+
+Before installing, the profile's `package.json`, `pnpm-lock.yaml`,
+`pnpm-workspace.yaml` and `cordis.patch.yml` are copied to
+`~/.dsh/aupdate-snapshots/<timestamp>/`, keeping the newest 3.
+
+There is deliberately **no automatic restore**. Putting an old manifest back and
+letting pnpm reinstall is a longer, riskier operation used to repair a possible
+failure, and guessing wrong costs more than the original problem. The snapshot is
+evidence; whether to use it is a human decision. It also keeps this feature
+distinct from the per-package rollback below: that one is "I want the old
+version", this one is "keep the scene".
 
 ### History and rollback
 
@@ -185,6 +277,9 @@ pile up one row per cycle and bury the entry you actually want to return to.
 - Installed versions are cached by `package.json` mtime and size, so a cycle does not re-read 24 files every run
 - dist-tags carry a 10-minute TTL, and batches yield to the event loop
 - Measured: 3.7 s for a 24-package cycle with everything cached and nothing to install
+- The idle probe walks at most four levels with one `readdir` per level: 36 ms over 251 session files here
+- `maxPerCycle` caps a single occupancy: pnpm holds its lock for the whole install, so 20 packages could keep a profile busy for tens of minutes; a cap lets the rest wait for the next cycle
+- History and failure tables are both stamped by `mtime+size` instead of being cached forever — these files live in `~/.dsh` and are shared across profiles, so a record another process just wrote must be visible immediately
 
 ### Logs
 

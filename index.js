@@ -10,7 +10,7 @@
  *  - 有子任务在跑时不换代码（换了会把它们全部中止）。
  *  - 每个定时回调和启动项都包在 try 里：开机项抛错会让整个桌面壳退出。
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -27,6 +27,10 @@ const RELOAD_TIMEOUT_MS = 180_000
 /** 这些包的 dist-tags.latest 落后于 next。 */
 const NEXT_TAG_SCOPES = ['@deepseek-ai/dsh-']
 const NPM_NAME_RE = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/iu
+/** 会话目录多久没写入才算「真的闲」。 */
+const SESSION_IDLE_MINUTES = 2
+/** 跨进程的安装锁：同一 profile 同时跑两个 pnpm 会抢锁失败。 */
+const LOCK_STALE_MS = 30 * 60 * 1000
 
 let lastRun = null
 let running = null
@@ -174,6 +178,8 @@ const OVERRIDEABLE = [
   // 只活在覆盖层里——Config 的字段类型是宿主校验的，加错一个类型
   // 会在加载期直接抛错，而覆盖层是我们自己的文件，改坏了只影响这一项。
   'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours',
+  // 效率闸门：一轮最多装几个、会话多静才算闲。
+  'maxPerCycle', 'sessionIdleMinutes',
 ]
 
 /** 四种调度模式。minutes 是原来的「间隔 N 分钟」，其余照抄竞品。 */
@@ -186,6 +192,8 @@ const NUMBER_BOUNDS = {
   everyHours: [1, 168],
   everyDays: [1, 30],
   suppressHours: [0, 720],
+  maxPerCycle: [0, 50],
+  sessionIdleMinutes: [0, 120],
 }
 
 let overrideCache = { stamp: null, value: {} }
@@ -334,6 +342,14 @@ function settingsOf(config) {
     everyDays: numberSetting(config, 'everyDays', 1, 1, 30),
     // 装失败的 pkg@版本 在这么多小时内不再重试。0 = 不抑制，每轮都试。
     suppressHours: numberSetting(config, 'suppressHours', 6, 0, 720),
+    // 一轮最多装几个。0 = 不限（保持原有行为）。
+    // 装包会一直占着 pnpm 锁，20 个包连着装能把 profile 占住几十分钟；
+    // 限一个数就把单次占用封顶，剩下的下一轮再来。
+    maxPerCycle: numberSetting(config, 'maxPerCycle', 0, 0, 50),
+    // 会话目录多少分钟内没有写入才算「闲」。0 = 不看会话写入，只看子任务。
+    sessionIdleMinutes: numberSetting(config, 'sessionIdleMinutes', SESSION_IDLE_MINUTES, 0, 120),
+    // 说明：这两个键不进 Config schema（见 OVERRIDEABLE 上的注释），
+    // 所以只能通过设置页/覆盖层改，改坏了不会影响插件加载。
   }
 }
 
@@ -402,26 +418,42 @@ function historyPath() {
   return join(dirname(settingsPath()), 'aupdate-history.json')
 }
 
-let historyCache = null
+// 和失败表一样按 mtime+size 判新旧：这个文件也在 ~/.dsh 下跨 profile 共用，
+// 读到一次就永久缓存会让另一个进程刚写的记录在这边看不见。
+let historyCache = { stamp: null, value: [] }
 
 function readHistory() {
-  if (historyCache !== null) return historyCache
-  const raw = readJson(historyPath())
+  const file = historyPath()
+  let stamp = 'missing'
+  try {
+    const info = statSync(file)
+    stamp = info.mtimeMs + ':' + info.size
+  } catch {
+    historyCache = { stamp: 'missing', value: [] }
+    return historyCache.value
+  }
+  if (historyCache.stamp === stamp) return historyCache.value
+  const raw = readJson(file)
   const rows = Array.isArray(raw?.entries) ? raw.entries : []
-  historyCache = rows.filter((row) => row !== null && typeof row === 'object')
-  return historyCache
+  historyCache = {
+    stamp,
+    value: rows.filter((row) => row !== null && typeof row === 'object'),
+  }
+  return historyCache.value
 }
 
 function saveHistory(rows) {
+  const value = rows.slice(0, HISTORY_MAX)
   try {
-    historyCache = rows.slice(0, HISTORY_MAX)
     const file = historyPath()
     mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, JSON.stringify({ entries: historyCache }, null, 2) + '\n', 'utf8')
+    writeFileSync(file, JSON.stringify({ entries: value }, null, 2) + '\n', 'utf8')
+    const info = statSync(file)
+    historyCache = { stamp: info.mtimeMs + ':' + info.size, value }
     return true
   } catch {
     // 记不上历史不影响更新本身，绝不能让它把这一轮搞挂。
-    historyCache = null
+    historyCache = { stamp: null, value: [] }
     return false
   }
 }
@@ -821,6 +853,193 @@ function isNestedTransaction(error) {
   return /\btransactions? cannot be nested\b/iu.test(String(error?.message ?? error))
 }
 
+/**
+ * 会话目录里最近一次写入距今多少分钟；目录不存在时返回 null（未知）。
+ *
+ * 为什么还要看文件 mtime，而不是只看 agent.status：竞品 niubi 实测踩过这个坑——
+ * turn 结束后 status 可能长期停在 running。只看 status 的话，「有子任务在跑」
+ * 会变成永久成立，自动更新永远不落地，而且用户从界面上看不出原因。
+ * 文件 mtime 是磁盘事实，谁在写会话一目了然。
+ *
+ * 代价也很清楚：深遍历会 stat 很多文件，所以限深四层、逐层只 readdir 一次。
+ * 实测本机 ~/.dsh/sessions 只有 251 个文件，扫一遍是毫秒级。
+ */
+function sessionAgeMinutes(now, root = null) {
+  const home = typeof root === 'string' && root !== ''
+    ? root
+    : (typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME !== ''
+      ? process.env.DSH_HOME
+      : join(homedir(), '.dsh'))
+  const base = join(home, 'sessions')
+  let newest = 0
+  let seen = 0
+  const walk = (dir, depth) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      // 单个条目 stat 失败就跳过：它可能是刚被删掉的文件，也可能权限不对。
+      // 读不到就当没看见，让判断回落到其它文件；全都读不到时 seen 为 0，
+      // 返回 null 表示「不知道」，调用方据此不拦更新——宁可照常跑，
+      // 也不因为一个读不了的文件把自动更新永久停掉。
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (depth < 4) walk(full, depth + 1)
+        continue
+      }
+      try {
+        const info = statSync(full)
+        seen += 1
+        if (info.mtimeMs > newest) newest = info.mtimeMs
+      } catch {}
+    }
+  }
+  walk(base, 0)
+  if (seen === 0 || newest === 0) return null
+  return (now.getTime() - newest) / 60000
+}
+
+/**
+ * 现在为什么不该动手（安装或换代码）。
+ *
+ * 两件事都会被「有人在用」否决，但理由不同：子任务在跑时换代码会把它中止；
+ * 会话在写说明用户正干着活，装包会占住 pnpm 并让界面变卡。
+ * 探测失败时返回空数组——宁可照常跑，也不因为读不到目录就把更新永久停掉。
+ */
+function activityReasons(ctx, now, idleMinutes) {
+  const reasons = []
+  const agents = runningSubagents(ctx)
+  if (agents.length > 0) reasons.push(agents.length + ' 个子任务在跑')
+  if (!(idleMinutes > 0)) return reasons
+  const age = sessionAgeMinutes(now)
+  if (age !== null && age < idleMinutes) {
+    reasons.push('会话在 ' + (age < 1 ? '不到 1' : Math.round(age)) + ' 分钟前还在写入')
+  }
+  return reasons
+}
+
+/**
+ * 跨进程的安装锁。
+ *
+ * 原来的 running 只是进程内的互斥：自己的两轮不会叠在一起，但管不了别的进程
+ * （另一个窗口、另一个 profile 的宿主、用户自己开的终端）。而 pnpm 的锁是
+ * 按 profile 目录算的，两个进程同时装就会撞 pnpm-workspace.yaml 的瞬时 EPERM。
+ * 这个文件锁把「同一 profile 同时只有一个安装」这件事落到磁盘上。
+ *
+ * 超时接管是为了不让一次崩溃永久堵住更新：锁超过 LOCK_STALE_MS 就当作没主。
+ */
+/** 动手前要留底的文件。这四个丢了任何一个，profile 都可能起不来。 */
+const SNAPSHOT_FILES = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml']
+/** 留最近几份。一份约 100KB，三份足够覆盖「刚才那次装坏了」。 */
+const SNAPSHOT_KEEP = 3
+
+function snapshotRoot() {
+  return join(dirname(settingsPath()), 'aupdate-snapshots')
+}
+
+/**
+ * 动手前把 manifest 那一套拷一份。
+ *
+ * 这一条抄自 publieople 和 z460440448，但只抄一半：他们还会「还原快照并重装」，
+ * 我们不做自动还原。原因是还原 manifest 会和已经装好的 node_modules 打架——
+ * 把旧的 pnpm-lock.yaml 盖回去、再让 pnpm 重装，等于用一次更长的高风险操作
+ * 去修一次可能的失败，判错的代价比原问题还大。
+ * 所以这里只留底、记下路径、在设置页显示出来；要不要用它，人自己决定。
+ * 这也让它和已有的「按包回滚」完全不重叠：那个是「我要旧版本」，这个是「留个现场」。
+ */
+function snapshotProfile(profileDir, now) {
+  try {
+    const stamp = now.toISOString().replace(/[:.]/gu, '-')
+    const dir = join(snapshotRoot(), stamp)
+    mkdirSync(dir, { recursive: true })
+    const saved = []
+    for (const file of SNAPSHOT_FILES) {
+      const from = join(profileDir, file)
+      if (!existsSync(from)) continue
+      writeFileSync(join(dir, file), readFileSync(from))
+      saved.push(file)
+    }
+    if (saved.length === 0) return null
+    pruneSnapshots()
+    return { dir, files: saved }
+  } catch (error) {
+    // 留底失败不该拦住更新本身：它只是事后证据，不是前置条件。
+    writeLog('snapshot failed: ' + oneLine(error?.message ?? error, 200))
+    return null
+  }
+}
+
+function pruneSnapshots() {
+  try {
+    const root = snapshotRoot()
+    const dirs = readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse()
+    for (const stale of dirs.slice(SNAPSHOT_KEEP)) {
+      rmSync(join(root, stale), { recursive: true, force: true })
+    }
+  } catch {}
+}
+
+function profileLockPath(profileDir) {
+  return join(profileDir, '.aupdate-install.lock')
+}
+
+function lockHolder(file) {
+  try {
+    return readFileSync(file, 'utf8').trim().slice(0, 200)
+  } catch {
+    return ''
+  }
+}
+
+function takeProfileLock(profileDir, now) {
+  const file = profileLockPath(profileDir)
+  const stamp = process.pid + ' ' + now.toISOString()
+  try {
+    writeFileSync(file, stamp + '\n', { encoding: 'utf8', flag: 'wx' })
+    return { ok: true, file }
+  } catch (error) {
+    if (error?.code !== 'EEXIST') return { ok: false, reason: oneLine(error?.message ?? error, 160) }
+  }
+  // 锁已存在：只有确认它过期（持有者崩了）才接管，否则老老实实让开。
+  let ageMinutes = null
+  try {
+    ageMinutes = Math.round((now.getTime() - statSync(file).mtimeMs) / 60000)
+  } catch {
+    ageMinutes = null
+  }
+  if (ageMinutes === null || ageMinutes * 60000 <= LOCK_STALE_MS) {
+    return {
+      ok: false,
+      reason: '另一个进程正在装（' + (lockHolder(file) === '' ? '看不见持有者' : lockHolder(file))
+        + (ageMinutes === null ? '' : '，' + ageMinutes + ' 分钟前') + '）',
+    }
+  }
+  try {
+    unlinkSync(file)
+  } catch {}
+  try {
+    writeFileSync(file, stamp + '\n', { encoding: 'utf8', flag: 'wx' })
+    writeLog('took over a stale install lock (' + ageMinutes + ' min old)')
+    return { ok: true, file }
+  } catch (error) {
+    return { ok: false, reason: '抢锁失败：' + oneLine(error?.message ?? error, 160) }
+  }
+}
+
+function releaseProfileLock(lock) {
+  if (lock === null || lock === undefined || typeof lock.file !== 'string') return
+  try {
+    unlinkSync(lock.file)
+  } catch {}
+}
+
 /** 正在跑的子任务；有它们时换代码会把它们中止。 */
 function runningSubagents(ctx) {
   try {
@@ -924,6 +1143,7 @@ async function runCycle(mode, ctxRef) {
     installed: [],
     reload: null,
     reason: '',
+    snapshot: '',
   }
   try {
     const profileDir = profileDirOf(ctxRef.ctx)
@@ -979,16 +1199,29 @@ async function runCycle(mode, ctxRef) {
       report.reason = '没有可更新的插件'
       return report
     }
+    // 单轮上限：装包会一直占着 pnpm 锁，一轮装 20 个能把 profile 占住几十分钟。
+    // 超出部分留在 updates 里，下一轮接着装——「发现」和「这一轮装到哪」是两件事。
+    const deferred = settings.maxPerCycle > 0 ? report.updates.length - settings.maxPerCycle : 0
+    if (deferred > 0) {
+      report.updates = report.updates.slice(0, settings.maxPerCycle)
+      writeLog('capped this cycle at ' + settings.maxPerCycle + ', ' + deferred + ' left for next round')
+    }
     if (mode === 'check' || !settings.autoApply) {
       report.reason = '只查不装'
       return report
     }
-    const busy = runningSubagents(ctxRef.ctx)
-    if (busy.length > 0) {
-      report.status = 'blocked'
-      report.reason = '还有 ' + busy.length + ' 个子任务在跑，这一轮不安装'
-      writeLog('apply skipped: ' + busy.length + ' subagent(s) running')
-      return report
+    // 空闲门槛：装包会常驻占住 pnpm 并让界面变卡，换代码会把子任务中止。
+    // 只有 update 且真的有事可做时才检查——check 模式什么都没装，打断不了任何人。
+    if (settings.idleOnly) {
+      // sessionIdleMinutes=0 表示不看会话写入，只保留「有子任务在跑」这一条。
+      const idleWindow = settings.sessionIdleMinutes
+      const why = activityReasons(ctxRef.ctx, new Date(), idleWindow)
+      if (why.length > 0) {
+        report.status = 'blocked'
+        report.reason = why.join('；') + '，这一轮不安装'
+        writeLog('apply skipped: ' + why.join('; '))
+        return report
+      }
     }
     const runner = cliRunner()
     if (runner === null) {
@@ -996,6 +1229,50 @@ async function runCycle(mode, ctxRef) {
       report.reason = '找不到 dsh 命令行入口，无法安装'
       return report
     }
+    // 进程内的 running 管得住自己的两轮，管不住别的进程；pnpm 的锁是按 profile 算的。
+    const lock = takeProfileLock(profileDir, new Date())
+    if (!lock.ok) {
+      report.status = 'blocked'
+      report.reason = lock.reason
+      writeLog('apply skipped: ' + lock.reason)
+      return report
+    }
+    try {
+      // 动手之前留个现场。装失败了至少有东西可查，而不是只剩日志。
+      const snapshot = snapshotProfile(profileDir, new Date())
+      if (snapshot !== null) {
+        report.snapshot = snapshot.dir
+        writeLog('snapshot -> ' + snapshot.dir + ' (' + snapshot.files.join(',') + ')')
+      }
+      return await applyUpdates(ctxRef, report, settings, runner, profileDir, profileName)
+    } finally {
+      releaseProfileLock(lock)
+    }
+  } catch (error) {
+    report.status = 'failed'
+    report.reason = oneLine(error?.message ?? error, 400)
+    writeLog('cycle failed: ' + report.reason)
+    return report
+  } finally {
+    report.finishedAt = new Date().toISOString()
+    lastRun = {
+      status: report.status,
+      at: report.finishedAt,
+      checked: report.checked,
+      updates: report.updates.map((item) => item.name + ' ' + (item.current ?? '?') + ' -> ' + item.target),
+      installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' 失败')),
+      reload: report.reload?.status ?? 'none',
+      reason: report.reason,
+      snapshot: report.snapshot,
+    }
+  }
+}
+
+/** 真正去装的那一段；从 runCycle 里拆出来，好让锁的释放有明确的 finally。 */
+async function applyUpdates(ctxRef, report, settings, runner, profileDir, profileName) {
+  // 安装与换代码。锁由外层 runCycle 持有并在 finally 里释放，
+  // 所以这里只管把包一个个装上、最后换一次代码，不碰锁。
+  {
     const requiredBefore = activeEntryIds(ctxRef.ctx)
     // 自身放到最后：换掉自身之后，这一轮剩下的代码就来自旧模块了。
     const ordered = report.updates.slice().sort((a, b) => (a.name === name ? 1 : b.name === name ? -1 : 0))
@@ -1030,6 +1307,9 @@ async function runCycle(mode, ctxRef) {
       report.reason = '已安装 ' + okCount + ' 个，待重启'
       return report
     }
+    // 装完之后再确认一次：安装可能耗时几分钟，期间可能有人开了子任务。
+    // 这里只看子任务，不看会话写入——换代码不会打断正在打字的用户，
+    // 但会因为「刚有写入」就放弃热生效，让装好的东西白等一次重启。
     if (settings.idleOnly && runningSubagents(ctxRef.ctx).length > 0) {
       report.reload = { status: 'cancelled', reason: '安装期间有子任务开跑，这一次不换代码' }
       report.reason = '已安装 ' + okCount + ' 个，未热生效'
@@ -1041,22 +1321,6 @@ async function runCycle(mode, ctxRef) {
     if (report.reload.status === 'failed') report.status = 'failed'
     else if (report.reload.status === 'blocked' || report.reload.status === 'restart') report.status = 'partial'
     return report
-  } catch (error) {
-    report.status = 'failed'
-    report.reason = oneLine(error?.message ?? error, 400)
-    writeLog('cycle failed: ' + report.reason)
-    return report
-  } finally {
-    report.finishedAt = new Date().toISOString()
-    lastRun = {
-      status: report.status,
-      at: report.finishedAt,
-      checked: report.checked,
-      updates: report.updates.map((item) => item.name + ' ' + (item.current ?? '?') + ' -> ' + item.target),
-      installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' 失败')),
-      reload: report.reload?.status ?? 'none',
-      reason: report.reason,
-    }
   }
 }
 /**
@@ -1105,7 +1369,16 @@ async function rollbackOne(ctxRef, entryName) {
   const profileName = basename(profileDir)
   const runner = cliRunner()
   if (runner === null) return { ok: false, reason: '找不到 dsh 命令行入口' }
-  const outcome = await installOne(runner, profileName, profileDir, row.name, row.from)
+  // 回滚也是一次 pnpm 安装，和定时轮次抢同一把 profile 锁。
+  // 拿不到就明确告诉用户「有别的进程在装」，而不是让两个 pnpm 撞锁报 EPERM。
+  const lock = takeProfileLock(profileDir, new Date())
+  if (!lock.ok) return { ok: false, reason: lock.reason }
+  let outcome
+  try {
+    outcome = await installOne(runner, profileName, profileDir, row.name, row.from)
+  } finally {
+    releaseProfileLock(lock)
+  }
   writeLog('rollback ' + row.name + ' ' + row.to + ' -> ' + row.from + ' -> ' + (outcome.ok ? 'ok' : 'failed: ' + outcome.detail))
   if (!outcome.ok) return { ok: false, reason: outcome.detail }
   const next = rows.slice()
@@ -1257,7 +1530,7 @@ function readBody(req) {
   })
 }
 
-function settingsSnapshot(config) {
+function settingsSnapshot(config, ctxRef) {
   const settings = settingsOf(config)
   return {
     settings,
@@ -1270,6 +1543,7 @@ function settingsSnapshot(config) {
       updates: lastRun.updates,
       installed: lastRun.installed,
       reload: lastRun.reload,
+      snapshot: lastRun.snapshot ?? '',
     },
     path: settingsPath(),
     history: readHistory().slice(0, 40),
@@ -1285,6 +1559,30 @@ function settingsSnapshot(config) {
       return { key: row.key, at: row.at, until: until !== null && Date.parse(until) > Date.now() ? until : null }
     }),
     failurePath: failurePath(),
+    // 动手前留的现场：设置页把它显示出来，出问题时有地方可查。
+    snapshotPath: snapshotRoot(),
+    // 为什么这一轮没动手：设置页把这两个直接显示出来，用户不用翻日志猜。
+    // 尤其 sessionIdleMinutes —— 它太短会挡住大半夜的更新，太长又不该挡，
+    // 得让人一眼看到「现在到底算不算闲」。
+    gate: (() => {
+      try {
+        const profileDir = profileDirOf(ctxRef?.ctx ?? null)
+        const lockFile = profileLockPath(profileDir)
+        const held = existsSync(lockFile)
+        return {
+          idleOnly: settings.idleOnly,
+          sessionIdleMinutes: settings.sessionIdleMinutes,
+          maxPerCycle: settings.maxPerCycle,
+          sessionAgeMinutes: (() => {
+            const age = sessionAgeMinutes(new Date())
+            return age === null ? null : Math.round(age * 10) / 10
+          })(),
+          lock: held ? lockHolder(lockFile) : '',
+        }
+      } catch {
+        return null
+      }
+    })(),
   }
 }
 
@@ -1301,7 +1599,7 @@ function registerRoutes(ctx, ctxRef) {
       const method = req.method ?? 'GET'
       if (method === 'GET' || method === 'HEAD') {
         if (suffix === '/state') {
-          sendJson(res, 200, settingsSnapshot(ctxRef.config))
+          sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef))
           return
         }
         sendJson(res, 404, { error: 'unknown endpoint' })
@@ -1326,7 +1624,7 @@ function registerRoutes(ctx, ctxRef) {
           } catch (error) {
             writeLog('reschedule failed: ' + oneLine(error?.message ?? error, 200))
           }
-          sendJson(res, 200, settingsSnapshot(ctxRef.config))
+          sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef))
           return
         }
         if (suffix === '/rollback') {
@@ -1378,7 +1676,7 @@ function registerRoutes(ctx, ctxRef) {
   }
 }
 
-export { compareVersions, upgradeVerdict, pickRollbackTarget, readHistory, historyPath, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides }
+export { compareVersions, upgradeVerdict, pickRollbackTarget, readHistory, historyPath, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides, takeProfileLock, releaseProfileLock, sessionAgeMinutes, activityReasons, settingsSnapshot, snapshotProfile, snapshotRoot, pruneSnapshots, nextDelayMinutes }
 
 export function apply(ctx, config) {
   const ctxRef = { ctx, config }

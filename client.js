@@ -64,6 +64,13 @@ window.__ModuleLoader__.load({
         allowHint: '每行一个包名；留空表示全部包都参与',
         allowMajor: '允许跨大版本',
         allowMajorHint: '关闭后只在同一主版本内升级（0.x 插件多半会因此长期不动）',
+      maxPerCycle: '一轮最多装几个',
+      maxPerCycleHint: '0 表示不限。装包会一直占着 pnpm 锁，限一个数就把单次占用封顶，剩下的下一轮接着装',
+      sessionIdle: '会话静默（分钟）',
+      sessionIdleHint: '会话文件这么多分钟没写入才算闲。0 表示只看有没有子任务在跑',
+      gateUnknown: '看不到会话目录，只按子任务判断',
+      gateSessionAge: '最近一次会话写入在 {n} 分钟前',
+      gateLocked: '另一个进程正在装：{who}',
         allowPrerelease: '允许预发布版本',
         allowPrereleaseHint: '关闭时只装正式版；走 next 标签的 DSH 本体不受影响',
         history: '更新记录',
@@ -132,6 +139,13 @@ window.__ModuleLoader__.load({
         allowHint: 'one package name per line; empty means every package',
         allowMajor: 'Allow major upgrades',
         allowMajorHint: 'Off keeps upgrades inside one major; 0.x plugins would rarely move',
+      maxPerCycle: 'Installs per cycle',
+      maxPerCycleHint: '0 means no limit. pnpm holds a lock for the whole install, so a cap bounds how long the profile stays busy; the rest wait for the next cycle',
+      sessionIdle: 'Session quiet window (minutes)',
+      sessionIdleHint: 'Session files must be untouched this long to count as idle. 0 judges by running subagents only',
+      gateUnknown: 'session directory not readable; judging by subagents only',
+      gateSessionAge: 'last session write {n} min ago',
+      gateLocked: 'another process is installing: {who}',
         allowPrerelease: 'Allow prereleases',
         allowPrereleaseHint: 'Off installs stable only; DSH itself on the next tag is unaffected',
         history: 'Update history',
@@ -356,6 +370,30 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 「现在算不算闲」这一行。
+     *
+     * 光给两个数字（静默阈值、单轮上限）用户没法判断插件到底在等什么：
+     * 明明没在开会话，为什么一直不更新？把服务端算出来的会话年龄和锁持有者
+     * 直接摆出来，就不用去翻日志猜。读不到就整行不渲染，不占位置。
+     */
+    function gateLine(state) {
+      const gate = state?.gate
+      if (gate === null || gate === undefined) return null
+      const parts = []
+      if (gate.sessionAgeMinutes === null || gate.sessionAgeMinutes === undefined) {
+        parts.push(T.gateUnknown)
+      } else {
+        parts.push(T.gateSessionAge.replace('{n}', String(gate.sessionAgeMinutes)))
+      }
+      if (typeof gate.lock === 'string' && gate.lock !== '') {
+        parts.push(T.gateLocked.replace('{who}', gate.lock))
+      }
+      return h('div', { style: S.labelBox },
+        h('span', { style: S.hint }, parts.join(' · ')),
+      )
+    }
+
     function AutoUpdateCard() {
       const [state, setState] = useState(null)
       const [draft, setDraft] = useState(null)
@@ -389,7 +427,7 @@ window.__ModuleLoader__.load({
 
       const dirty = useMemo(() => {
         if (state === null || draft === null) return false
-        const keys = ['enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours']
+        const keys = ['enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours', 'maxPerCycle', 'sessionIdleMinutes']
         for (const key of keys) {
           if (draft[key] !== state.settings[key]) return true
         }
@@ -421,6 +459,8 @@ window.__ModuleLoader__.load({
             everyHours: draft.everyHours,
             everyDays: draft.everyDays,
             suppressHours: draft.suppressHours,
+            maxPerCycle: draft.maxPerCycle,
+            sessionIdleMinutes: draft.sessionIdleMinutes,
           })
           setState(next)
           setDraft(next.settings)
@@ -536,6 +576,9 @@ window.__ModuleLoader__.load({
             : null,
           h(NumberRow, { label: T.firstDelay, hint: T.firstDelayHint, value: draft.firstDelayMinutes, min: 0, max: 1440, onChange: (v) => patch('firstDelayMinutes', v), disabled: !draft.enabled }),
           h(NumberRow, { label: T.suppress, hint: T.suppressHint, value: draft.suppressHours, min: 0, max: 720, onChange: (v) => patch('suppressHours', v), disabled: !draft.enabled }),
+          h(NumberRow, { label: T.maxPerCycle, hint: T.maxPerCycleHint, value: draft.maxPerCycle, min: 0, max: 50, onChange: (v) => patch('maxPerCycle', v), disabled: !draft.enabled }),
+          h(NumberRow, { label: T.sessionIdle, hint: T.sessionIdleHint, value: draft.sessionIdleMinutes, min: 0, max: 120, onChange: (v) => patch('sessionIdleMinutes', v), disabled: !draft.enabled || !draft.idleOnly }),
+          gateLine(state),
           h('div', { style: S.labelBox },
             h('span', { style: S.label }, T.exclude),
             h('span', { style: S.hint }, T.excludeHint),
