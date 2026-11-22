@@ -16,13 +16,40 @@ https://github.com/CalmSun/dsh-aupdate
 
 ## 行为
 
-- 按 `intervalMinutes` 定时跑一轮，启动后 `firstDelayMinutes` 分钟先跑一次（`checkOnStart`）
+- 按 `scheduleMode` 定时跑一轮，启动后 `firstDelayMinutes` 分钟先跑一次（`checkOnStart`）
 - 每轮遍历 profile `package.json` 的依赖，只查 `/-/package/<name>/dist-tags`，不拉整份 packument
 - `@deepseek-ai/dsh-*` 读 `next` 标签，其余读 `latest`
 - `link:` / `file:` / `workspace:` / `portal:` 安装的包一律跳过
 - 安装走 profile 自己的 `dsh plugin add`，串行执行；本插件自己排在最后
 - 装完回读磁盘上的版本，只有真的换了版本才算成功
 - 安装成功后按需 HMR 就地生效；有子任务在跑时这一轮不换代码
+
+## 调度方式
+
+`scheduleMode` 选一种节奏，四种模式的参数互相独立，切换不丢值：
+
+| 模式 | 参数 | 说明 |
+|---|---|---|
+| `minutes` | `intervalMinutes` | 每 N 分钟（默认，1440 即一天） |
+| `hours` | `everyHours` | 每 N 小时，1 到 168 |
+| `days` | `everyDays` | 每 N 天，1 到 30 |
+| `daily` | `dailyAt` | 每天固定时刻，24 小时制 `HH:MM` |
+
+定时器是「这一轮跑完再排下一次」，不是固定间隔触发：一轮检查可能跑几分钟，
+固定间隔会让两次执行叠在一起。设成「每天 03:00」时，若 03:00 刚好在跑或已过，
+就顺延到次日 03:00，不会留下 0 分钟的空转。
+
+非法值不会写进去：`25:00`、`abc` 这类时刻会被拒绝、保留原来的值；
+模式名不认识就退回 `minutes`。写坏的设置不该让定时检查悄悄停掉。
+
+## 失败抑制
+
+装失败的 `包名@版本` 会被记下来，`suppressHours`（默认 6 小时，0 表示不抑制）
+之内不再重试同一个版本。键是「包名 + 版本」而不是包名：升到新版本仍会重新试一次，
+那是新的事实。
+
+没有这一条时，一个坏版本会让每一轮都去装一次、失败一次——日志刷满、pnpm 被占着，
+而结果注定。设置页能直接看到当前在抑制中的条目和解除时间。成功装上后记录自动清掉。
 
 ## 更新策略
 
@@ -40,6 +67,10 @@ https://github.com/CalmSun/dsh-aupdate
 每次成功安装都会记一条：包名、从哪个版本、到哪个版本、时间。历史存在
 `~/.dsh/aupdate-history.json`，设置页里能直接看到，并对最近一次更新点「回滚」
 把旧版本装回去。回滚只针对本插件自己装上去的那一次。
+
+同一个包的 `from → to` 完全相同、且都不是回滚记录时只留最新一条：
+否则同一行失败记录会一轮一条堆满历史，真正要回的那个点反而找不到了。
+`1.0 → 1.1` 和 `1.0 → 1.2` 是两件事，不会合并。
 
 ## 工具
 
@@ -81,13 +112,45 @@ installs itself last in the queue so it cannot swap itself out mid-update.
 
 ### Behaviour
 
-- Runs a cycle every `intervalMinutes`, first after `firstDelayMinutes` when `checkOnStart` is on
+- Runs a cycle according to `scheduleMode`, first after `firstDelayMinutes` when `checkOnStart` is on
 - Reads only `/-/package/<name>/dist-tags` per dependency, never a full packument
 - `@deepseek-ai/dsh-*` packages follow the `next` tag; everything else follows `latest`
 - Packages installed via `link:` / `file:` / `workspace:` / `portal:` are skipped
 - Installs go through the profile's own `dsh plugin add`, one at a time
 - After each install the version is re-read from disk; a no-op is not reported as an update
 - Successful installs are applied in place via HMR, deferred while subagents are running
+
+### Schedule
+
+`scheduleMode` picks one rhythm; each mode keeps its own value, so switching back
+and forth never loses a setting.
+
+| Mode | Setting | Meaning |
+|---|---|---|
+| `minutes` | `intervalMinutes` | Every N minutes (default, 1440 means daily) |
+| `hours` | `everyHours` | Every N hours, 1 to 168 |
+| `days` | `everyDays` | Every N days, 1 to 30 |
+| `daily` | `dailyAt` | A fixed time each day, 24-hour `HH:MM` |
+
+The timer is "schedule the next run after this one finishes", not a fixed tick: a
+cycle can take minutes, and a fixed interval would overlap two of them. With a
+`dailyAt` time that has already passed or is currently running, the next run goes
+to the same clock time tomorrow instead of busy-looping on zero minutes.
+
+Invalid values are never stored: a malformed time such as `25:00` or `abc` is
+rejected and the previous value is kept, and an unknown mode falls back to
+`minutes`. A typo should not silently stop the scheduler.
+
+### Failure suppression
+
+A `name@version` that failed to install is recorded and not retried for
+`suppressHours` (default 6, 0 disables). The key includes the version, so a newer
+release is still attempted — that is a new fact.
+
+Without this, one broken version makes every cycle install it again and fail
+again: the log fills up, pnpm stays busy, and the outcome is already decided. The
+settings page shows which entries are currently suppressed and when they expire.
+A successful install clears the record.
 
 ### Policy
 
@@ -106,6 +169,11 @@ Every successful install is recorded with the package name, the previous version
 the new version, and a timestamp, in `~/.dsh/aupdate-history.json`. The settings
 page lists them and can roll the most recent update back to its previous version.
 A rollback applies once: the same downgrade cannot be replayed.
+
+Repeated rows for the same package with an identical `from → to`, where neither is
+a rollback, collapse into the newest one. Otherwise a single failing version would
+pile up one row per cycle and bury the entry you actually want to return to.
+`1.0 → 1.1` and `1.0 → 1.2` are different events and stay separate.
 
 ### Tool
 

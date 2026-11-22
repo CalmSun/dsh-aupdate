@@ -170,7 +170,23 @@ const OVERRIDEABLE = [
   'enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly',
   'intervalMinutes', 'firstDelayMinutes', 'exclude',
   'allow', 'allowMajor', 'allowPrerelease',
+  // 调度：四种节奏 + 失败抑制时长。这些键不写进 Config schema，
+  // 只活在覆盖层里——Config 的字段类型是宿主校验的，加错一个类型
+  // 会在加载期直接抛错，而覆盖层是我们自己的文件，改坏了只影响这一项。
+  'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours',
 ]
+
+/** 四种调度模式。minutes 是原来的「间隔 N 分钟」，其余照抄竞品。 */
+const SCHEDULE_MODES = ['minutes', 'hours', 'days', 'daily']
+
+/** 数值型覆盖项的边界：写坏了钳进范围，而不是让设置页把插件配废。 */
+const NUMBER_BOUNDS = {
+  intervalMinutes: [10, 10080],
+  firstDelayMinutes: [0, 1440],
+  everyHours: [1, 168],
+  everyDays: [1, 30],
+  suppressHours: [0, 720],
+}
 
 let overrideCache = { stamp: null, value: {} }
 
@@ -210,12 +226,23 @@ function writeOverrides(patch) {
       next[key] = stringList(raw)
       continue
     }
-    if (key === 'intervalMinutes' || key === 'firstDelayMinutes') {
+    if (key === 'dailyAt') {
+      const text = typeof raw === 'string' ? raw.trim() : ''
+      if (!/^([01]?\d|2[0-3]):([0-5]\d)$/u.test(text)) continue
+      const [hour, minute] = text.split(':')
+      next[key] = String(hour).padStart(2, '0') + ':' + minute
+      continue
+    }
+    if (key === 'scheduleMode') {
+      const text = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+      if (SCHEDULE_MODES.includes(text)) next[key] = text
+      continue
+    }
+    const bounds = NUMBER_BOUNDS[key]
+    if (bounds !== undefined) {
       const value = typeof raw === 'number' ? raw : Number(raw)
       if (!Number.isFinite(value)) continue
-      const min = key === 'intervalMinutes' ? 10 : 0
-      const max = key === 'intervalMinutes' ? 10080 : 1440
-      next[key] = Math.min(Math.max(Math.round(value), min), max)
+      next[key] = Math.min(Math.max(Math.round(value), bounds[0]), bounds[1])
       continue
     }
     if (typeof raw === 'boolean') next[key] = raw
@@ -231,6 +258,53 @@ function writeOverrides(patch) {
   // 缓存立刻跟上，否则这一轮读到的还是旧值。
   overrideCache = { stamp: null, value: {} }
   return { ok: true, value: next }
+}
+
+/** 只接受四种已知模式，写错了退回 minutes，绝不让调度器拿到一个不认识的字符串。 */
+function scheduleModeOf(config) {
+  const raw = config?.scheduleMode
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  return SCHEDULE_MODES.includes(value) ? value : 'minutes'
+}
+
+/**
+ * HH:MM 时钟。故意不接受秒、不接受 12 小时制、不接受 25:00：
+ * 一个写错的时刻会让「每天几点」永远不触发，而用户不会去看日志。
+ */
+function clockOf(config, key, fallback) {
+  const raw = config?.[key]
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  const matched = /^([01]?\d|2[0-3]):([0-5]\d)$/u.exec(text)
+  if (matched === null) return fallback
+  return String(matched[1]).padStart(2, '0') + ':' + matched[2]
+}
+
+/**
+ * 这一轮跑完之后，隔多少分钟再跑。
+ *
+ * 竞品 niubi 的四种调度模式确实有用：有人想「每天凌晨三点跑一次」，
+ * 有人想「每 6 小时」。但定时器本身仍然是「跑完再排下一次」——
+ * 不是 setInterval 对齐到墙钟，因为一轮检查可能跑几分钟，
+ * 对齐反而会让两次执行重叠。所以这里返回的是「从现在起多久」。
+ */
+function nextDelayMinutes(live, now) {
+  switch (live.scheduleMode) {
+    case 'hours':
+      return live.everyHours * 60
+    case 'days':
+      return live.everyDays * 24 * 60
+    case 'daily': {
+      // 算出下一个 HH:MM 还有多久；刚好过点就顺延到明天，不留 0 分钟的空转。
+      const [hour, minute] = live.dailyAt.split(':').map(Number)
+      const target = new Date(now.getTime())
+      target.setHours(hour, minute, 0, 0)
+      let wait = target.getTime() - now.getTime()
+      if (wait <= 0) wait += 24 * 60 * 60 * 1000
+      return Math.round(wait / 60000)
+    }
+    default:
+      return live.intervalMinutes
+  }
 }
 
 function settingsOf(config) {
@@ -252,6 +326,14 @@ function settingsOf(config) {
     // 默认不装预发布。注意：走 next 标签的包（@deepseek-ai/dsh-*）是显式选择，
     // 不受这一条限制，否则 DSH 本体永远停在旧版本上。
     allowPrerelease: booleanSetting(config, 'allowPrerelease', false),
+    // 调度模式：intervalMinutes 只在 minutes 模式下生效，
+    // 其余三种各有自己的参数，切模式不丢原来的值。
+    scheduleMode: scheduleModeOf(config),
+    dailyAt: clockOf(config, 'dailyAt', '03:00'),
+    everyHours: numberSetting(config, 'everyHours', 6, 1, 168),
+    everyDays: numberSetting(config, 'everyDays', 1, 1, 30),
+    // 装失败的 pkg@版本 在这么多小时内不再重试。0 = 不抑制，每轮都试。
+    suppressHours: numberSetting(config, 'suppressHours', 6, 0, 720),
   }
 }
 
@@ -344,10 +426,107 @@ function saveHistory(rows) {
   }
 }
 
+/**
+ * 写一条历史。
+ *
+ * 去重抄的是 chendaleiQ：同一个包、同样的 from→to，只留最新那条。
+ * 否则「装了但磁盘上没变」这类失败每一轮都写一条，几十轮之后记录里
+ * 全是同一行，回滚时反而找不到真正要回的那个点。
+ * 注意只合并 from/to 完全相同的：1.0→1.1 和 1.0→1.2 是两件事，不能并。
+ */
 function appendHistory(row) {
   const rows = readHistory().slice()
+  const duplicate = rows.findIndex((item) =>
+    item.name === row.name &&
+    item.from === row.from &&
+    item.to === row.to &&
+    item.profile === row.profile &&
+    item.rolledBack !== true &&
+    row.rolledBack !== true,
+  )
+  if (duplicate >= 0) rows.splice(duplicate, 1)
   rows.unshift(row)
   saveHistory(rows)
+}
+
+/**
+ * 失败抑制。
+ *
+ * 抄的是 publieople 的做法：装失败的 pkg@版本 记下来，短时间内不再重试。
+ * 没有这一条时，一个坏版本会让每一轮检查都去装一次、失败一次——
+ * 日志被刷满，pnpm 被占着，而结果是注定的。注意键是「包名@版本」
+ * 而不是包名：升级到新版本之后仍要重新试一次，那是新的事实。
+ */
+const FAILURE_MAX = 100
+
+function failurePath() {
+  return join(dirname(settingsPath()), 'aupdate-failures.json')
+}
+
+// 这个文件在 ~/.dsh 下，是所有 profile 共用的；两个进程都会写它，
+// 所以和设置覆盖层一样按 mtime 判新旧，不能读到一次就永久缓存。
+let failureCache = { stamp: null, value: [] }
+
+function readFailures() {
+  const file = failurePath()
+  let stamp = 'missing'
+  try {
+    const info = statSync(file)
+    stamp = info.mtimeMs + ':' + info.size
+  } catch {
+    failureCache = { stamp: 'missing', value: [] }
+    return failureCache.value
+  }
+  if (failureCache.stamp === stamp) return failureCache.value
+  const raw = readJson(file)
+  const rows = Array.isArray(raw?.entries) ? raw.entries : []
+  failureCache = {
+    stamp,
+    value: rows.filter((row) => row !== null && typeof row === 'object' && typeof row.key === 'string'),
+  }
+  return failureCache.value
+}
+
+function saveFailures(rows) {
+  const value = rows.slice(0, FAILURE_MAX)
+  try {
+    const file = failurePath()
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify({ entries: value }, null, 2) + '\n', 'utf8')
+    // 写成功后把缓存指向刚写的内容，下次读不必再解析一遍。
+    const info = statSync(file)
+    failureCache = { stamp: info.mtimeMs + ':' + info.size, value }
+    return true
+  } catch {
+    failureCache = { stamp: null, value: [] }
+    return false
+  }
+}
+
+function noteFailure(pkgName, version) {
+  const key = pkgName + '@' + version
+  const rows = readFailures().filter((row) => row.key !== key)
+  rows.unshift({ key, at: new Date().toISOString() })
+  saveFailures(rows)
+}
+
+function clearFailure(pkgName, version) {
+  const key = pkgName + '@' + version
+  const rows = readFailures()
+  if (!rows.some((row) => row.key === key)) return
+  saveFailures(rows.filter((row) => row.key !== key))
+}
+
+/** 这个 pkg@版本 是否还在抑制窗口内。suppressHours 为 0 时永不抑制。 */
+function suppressedUntil(pkgName, version, settings, now) {
+  if (settings.suppressHours <= 0) return null
+  const key = pkgName + '@' + version
+  const row = readFailures().find((item) => item.key === key)
+  if (row === undefined) return null
+  const at = Date.parse(String(row.at ?? ''))
+  if (!Number.isFinite(at)) return null
+  const until = at + settings.suppressHours * 3600_000
+  return until > now.getTime() ? new Date(until) : null
 }
 
 /**
@@ -774,6 +953,16 @@ async function runCycle(mode, ctxRef) {
             if (verdict.why === '已经是最新') return null
             return { name: dep.name, current, target, why: verdict.why }
           }
+          // 这个版本之前装失败过、还在抑制窗口内：这一轮不再试它。
+          const until = suppressedUntil(dep.name, target, settings, new Date())
+          if (until !== null) {
+            return {
+              name: dep.name,
+              current,
+              target,
+              why: '上次安装失败，' + until.toISOString().slice(0, 16).replace('T', ' ') + ' 前不再重试',
+            }
+          }
           return { name: dep.name, current, target, tag }
         } catch (error) {
           return { name: dep.name, current, why: '查不到：' + oneLine(error?.message ?? error, 120) }
@@ -815,6 +1004,7 @@ async function runCycle(mode, ctxRef) {
       report.installed.push(outcome)
       writeLog('install ' + update.name + '@' + update.target + ' -> ' + (outcome.ok ? 'ok' : 'failed: ' + outcome.detail))
       if (outcome.ok) {
+        clearFailure(update.name, update.target)
         appendHistory({
           at: new Date().toISOString(),
           name: update.name,
@@ -824,6 +1014,9 @@ async function runCycle(mode, ctxRef) {
           profile: profileName,
           rolledBack: false,
         })
+      } else {
+        // 记下失败，下一轮跳过这个版本，而不是每轮都撞一次同样的墙。
+        noteFailure(update.name, update.target)
       }
     }
     const okCount = report.installed.filter((item) => item.ok).length
@@ -1081,6 +1274,17 @@ function settingsSnapshot(config) {
     path: settingsPath(),
     history: readHistory().slice(0, 40),
     historyPath: historyPath(),
+    // 下一轮什么时候跑：设置页把它直接显示出来，用户不用自己推算。
+    nextInMinutes: nextDelayMinutes(settings, new Date()),
+    // 被抑制的 pkg@版本：让人看得见「为什么这个包不更新了」。
+    failures: readFailures().slice(0, 20).map((row) => {
+      const at = Date.parse(String(row.at ?? ''))
+      const until = Number.isFinite(at) && settings.suppressHours > 0
+        ? new Date(at + settings.suppressHours * 3600_000).toISOString()
+        : null
+      return { key: row.key, at: row.at, until: until !== null && Date.parse(until) > Date.now() ? until : null }
+    }),
+    failurePath: failurePath(),
   }
 }
 
@@ -1257,8 +1461,8 @@ export function apply(ctx, config) {
       writeLog('settings say disabled; scheduler parked')
       return
     }
-    // 第一次看 firstDelayMinutes，之后看 intervalMinutes。
-    const minutes = firstPending && live.checkOnStart ? live.firstDelayMinutes : live.intervalMinutes
+    // 启动后第一次仍然只看 firstDelayMinutes，之后按当前调度模式算。
+    const minutes = firstPending && live.checkOnStart ? live.firstDelayMinutes : nextDelayMinutes(live, new Date())
     firstPending = false
     const handle = setTimeout(() => {
       scheduled = null

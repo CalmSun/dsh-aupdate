@@ -40,6 +40,22 @@ window.__ModuleLoader__.load({
         idleOnlyHint: '避免在别的任务跑到一半时替换模块',
         interval: '检查间隔',
         intervalHint: '分钟，10 到 10080（一周）',
+        schedule: '调度方式',
+        scheduleHint: '选一种节奏；各模式参数互相独立，切换不丢值',
+        modeMinutes: '每 N 分钟',
+        modeHours: '每 N 小时',
+        modeDays: '每 N 天',
+        modeDaily: '每天固定时刻',
+        dailyAt: '每天几点',
+        dailyAtHint: '24 小时制 HH:MM，按本机时区',
+        everyHours: '间隔小时数',
+        everyHoursHint: '1 到 168（一周）',
+        everyDays: '间隔天数',
+        everyDaysHint: '1 到 30',
+        nextRun: '下一轮',
+        suppress: '失败后暂停重试',
+        suppressHint: '小时；同一版本装失败后这段时间不再试，0 表示每轮都试',
+        suppressOn: '抑制中',
         firstDelay: '启动后延迟',
         firstDelayHint: '分钟，0 表示立刻',
         exclude: '不自动更新的包',
@@ -92,6 +108,22 @@ window.__ModuleLoader__.load({
         idleOnlyHint: 'Avoids swapping modules mid-task',
         interval: 'Interval',
         intervalHint: 'minutes, 10 to 10080 (one week)',
+        schedule: 'Schedule',
+        scheduleHint: 'Pick one rhythm; each mode keeps its own value',
+        modeMinutes: 'Every N minutes',
+        modeHours: 'Every N hours',
+        modeDays: 'Every N days',
+        modeDaily: 'Daily at a fixed time',
+        dailyAt: 'Time of day',
+        dailyAtHint: '24-hour HH:MM in local time',
+        everyHours: 'Hours between runs',
+        everyHoursHint: '1 to 168 (one week)',
+        everyDays: 'Days between runs',
+        everyDaysHint: '1 to 30',
+        nextRun: 'Next run',
+        suppress: 'Pause retries after a failure',
+        suppressHint: 'hours; a failed version is skipped this long, 0 retries every cycle',
+        suppressOn: 'suppressed',
         firstDelay: 'First delay',
         firstDelayHint: 'minutes, 0 means immediately',
         exclude: 'Never auto-update',
@@ -227,6 +259,8 @@ window.__ModuleLoader__.load({
       hint: { opacity: 0.55, fontSize: '11.5px' },
       input: { width: '96px', padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '13px', textAlign: 'right' },
       area: { width: '100%', minHeight: '58px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '12.5px', fontFamily: 'inherit', resize: 'vertical' },
+      // select 的宽度比数字框宽：四种模式的中文标签最长「每天固定时刻」。
+      select: { padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '13px', minWidth: '132px' },
       actions: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
       btn: { padding: '5px 12px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: '13px' },
       btnPrimary: { padding: '5px 12px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'rgba(128,128,128,0.16)', color: 'inherit', cursor: 'pointer', fontSize: '13px', fontWeight: 500 },
@@ -279,6 +313,49 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * HH:MM 输入。用 type="time" 而不是文本框：交给浏览器保证格式，
+     * 后端也仍然会校验一次（写坏的设置不该让「每天几点」永远不触发）。
+     */
+    function ClockRow(props) {
+      const { label, hint, value, onChange, disabled } = props
+      return h('div', { style: S.row },
+        h('div', { style: S.labelBox },
+          h('span', { style: S.label }, label),
+          hint ? h('span', { style: S.hint }, hint) : null,
+        ),
+        h('input', {
+          type: 'time',
+          value: typeof value === 'string' ? value : '03:00',
+          disabled: disabled === true,
+          onChange: (event) => onChange(event.target.value),
+          style: S.input,
+        }),
+      )
+    }
+
+    /**
+     * 调度模式选择器。
+     *
+     * 用原生 select 而不是按钮组：设置页是没有构建步骤的裸客户端脚本，
+     * select 在暗色/亮色主题下都由系统负责，比自己画的按钮组更不容易出错。
+     */
+    function SelectRow(props) {
+      const { label, hint, value, options, onChange, disabled } = props
+      return h('div', { style: S.row },
+        h('div', { style: S.labelBox },
+          h('span', { style: S.label }, label),
+          hint ? h('span', { style: S.hint }, hint) : null,
+        ),
+        h('select', {
+          value,
+          disabled: disabled === true,
+          onChange: (event) => onChange(event.target.value),
+          style: S.select,
+        }, options.map((option) => h('option', { key: option.value, value: option.value }, option.label))),
+      )
+    }
+
     function AutoUpdateCard() {
       const [state, setState] = useState(null)
       const [draft, setDraft] = useState(null)
@@ -312,7 +389,7 @@ window.__ModuleLoader__.load({
 
       const dirty = useMemo(() => {
         if (state === null || draft === null) return false
-        const keys = ['enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease']
+        const keys = ['enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours']
         for (const key of keys) {
           if (draft[key] !== state.settings[key]) return true
         }
@@ -339,6 +416,11 @@ window.__ModuleLoader__.load({
             allow: draft.allow,
             allowMajor: draft.allowMajor,
             allowPrerelease: draft.allowPrerelease,
+            scheduleMode: draft.scheduleMode,
+            dailyAt: draft.dailyAt,
+            everyHours: draft.everyHours,
+            everyDays: draft.everyDays,
+            suppressHours: draft.suppressHours,
           })
           setState(next)
           setDraft(next.settings)
@@ -426,8 +508,34 @@ window.__ModuleLoader__.load({
           h(SwitchRow, { label: T.idleOnly, hint: T.idleOnlyHint, value: draft.idleOnly, onChange: (v) => patch('idleOnly', v), disabled: !draft.enabled }),
         ),
         h('div', { style: S.card },
-          h(NumberRow, { label: T.interval, hint: T.intervalHint, value: draft.intervalMinutes, min: 10, max: 10080, onChange: (v) => patch('intervalMinutes', v), disabled: !draft.enabled }),
+          h(SelectRow, {
+            label: T.schedule,
+            hint: T.scheduleHint,
+            value: draft.scheduleMode,
+            disabled: !draft.enabled,
+            onChange: (v) => patch('scheduleMode', v),
+            options: [
+              { value: 'minutes', label: T.modeMinutes },
+              { value: 'hours', label: T.modeHours },
+              { value: 'days', label: T.modeDays },
+              { value: 'daily', label: T.modeDaily },
+            ],
+          }),
+          // 只渲染当前模式对应的那个参数：四种都摆出来会让面板变成一排用不上的数字。
+          draft.scheduleMode === 'minutes'
+            ? h(NumberRow, { label: T.interval, hint: T.intervalHint, value: draft.intervalMinutes, min: 10, max: 10080, onChange: (v) => patch('intervalMinutes', v), disabled: !draft.enabled })
+            : null,
+          draft.scheduleMode === 'hours'
+            ? h(NumberRow, { label: T.everyHours, hint: T.everyHoursHint, value: draft.everyHours, min: 1, max: 168, onChange: (v) => patch('everyHours', v), disabled: !draft.enabled })
+            : null,
+          draft.scheduleMode === 'days'
+            ? h(NumberRow, { label: T.everyDays, hint: T.everyDaysHint, value: draft.everyDays, min: 1, max: 30, onChange: (v) => patch('everyDays', v), disabled: !draft.enabled })
+            : null,
+          draft.scheduleMode === 'daily'
+            ? h(ClockRow, { label: T.dailyAt, hint: T.dailyAtHint, value: draft.dailyAt, onChange: (v) => patch('dailyAt', v), disabled: !draft.enabled })
+            : null,
           h(NumberRow, { label: T.firstDelay, hint: T.firstDelayHint, value: draft.firstDelayMinutes, min: 0, max: 1440, onChange: (v) => patch('firstDelayMinutes', v), disabled: !draft.enabled }),
+          h(NumberRow, { label: T.suppress, hint: T.suppressHint, value: draft.suppressHours, min: 0, max: 720, onChange: (v) => patch('suppressHours', v), disabled: !draft.enabled }),
           h('div', { style: S.labelBox },
             h('span', { style: S.label }, T.exclude),
             h('span', { style: S.hint }, T.excludeHint),
