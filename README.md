@@ -2,6 +2,18 @@
 
 定时检查已装插件的 npm 新版本，串行安装、就地生效，不重启 DSH。带一个设置页：能改策略、看更新记录、把装坏的版本退回去。
 
+## 安装
+
+插件页 → 安装 → 填 GitHub 地址：
+
+```
+https://github.com/CalmSun/dsh-aupdate
+```
+
+装完重启 DSH（宿主半边需要新一世代才加载）。之后在插件页的 `dsh-aupdate` 一行里改设置。
+
+本插件在安装队列里把自己排到最后，避免在更新自己的过程中把自己换掉。
+
 ## 行为
 
 - 按 `intervalMinutes` 定时跑一轮，启动后 `firstDelayMinutes` 分钟先跑一次（`checkOnStart`）
@@ -43,8 +55,12 @@
 - 只取 dist-tags：24 个包从 2.88 MB 降到 655 B
 - 已装版本按 `package.json` 的 mtime+size 缓存，不再每轮同步读 24 次盘
 - dist-tags 带 10 分钟 TTL；批量之间让出事件循环，界面不掉帧
-- 一轮耗时从约 15 s 降到约 8 s
+- 实测一轮 24 个包耗时 3.7 s（全部命中缓存、无需安装时）
 
 ## 日志
 
 `~/.dsh/aupdate.log`，写完即刷，超过上限自动轮转。设置覆盖存于 `~/.dsh/aupdate-settings.json`。
+
+## 许可
+
+MIT
