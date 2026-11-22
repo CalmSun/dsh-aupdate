@@ -61,6 +61,68 @@ https://github.com/CalmSun/dsh-aupdate
 
 `~/.dsh/aupdate.log`，写完即刷，超过上限自动轮转。设置覆盖存于 `~/.dsh/aupdate-settings.json`。
 
-## 许可
+## English
+
+Scheduled updater for the DSH plugins installed in a profile. It checks npm on an
+interval, installs one package at a time, and applies the result without restarting
+DSH. A settings page lets you change the policy, read the update history, and roll
+a bad version back.
+
+### Install
+
+Plugins page → Install → paste the repository URL:
+
+```
+https://github.com/CalmSun/dsh-aupdate
+```
+
+Restart DSH afterwards (the host half loads on the next generation). The plugin
+installs itself last in the queue so it cannot swap itself out mid-update.
+
+### Behaviour
+
+- Runs a cycle every `intervalMinutes`, first after `firstDelayMinutes` when `checkOnStart` is on
+- Reads only `/-/package/<name>/dist-tags` per dependency, never a full packument
+- `@deepseek-ai/dsh-*` packages follow the `next` tag; everything else follows `latest`
+- Packages installed via `link:` / `file:` / `workspace:` / `portal:` are skipped
+- Installs go through the profile's own `dsh plugin add`, one at a time
+- After each install the version is re-read from disk; a no-op is not reported as an update
+- Successful installs are applied in place via HMR, deferred while subagents are running
+
+### Policy
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `allow` | `[]` | Only update these packages; empty means all |
+| `exclude` | `[]` | Never update these; takes priority over `allow` |
+| `allowMajor` | `true` | When off, stay within the same major version |
+| `allowPrerelease` | `false` | When off, skip prereleases; the `next` tag is unaffected |
+| `idleOnly` | `true` | Do not touch code while subagents are running |
+| `hotReload` | `true` | Apply in place after install instead of waiting for a restart |
+
+### History and rollback
+
+Every successful install is recorded with the package name, the previous version,
+the new version, and a timestamp, in `~/.dsh/aupdate-history.json`. The settings
+page lists them and can roll the most recent update back to its previous version.
+A rollback applies once: the same downgrade cannot be replayed.
+
+### Tool
+
+`plugin_updater` with an `action` argument: `check`, `update`, `state`, or `history`.
+
+### Why it is cheap
+
+- dist-tags only: 24 packages went from 2.88 MB to 655 B of traffic
+- Installed versions are cached by `package.json` mtime and size, so a cycle does not re-read 24 files every run
+- dist-tags carry a 10-minute TTL, and batches yield to the event loop
+- Measured: 3.7 s for a 24-package cycle with everything cached and nothing to install
+
+### Logs
+
+`~/.dsh/aupdate.log`, flushed on write and rotated when it grows. Setting overrides
+live in `~/.dsh/aupdate-settings.json`.
+
+## License
 
 MIT

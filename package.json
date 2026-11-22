@@ -1,7 +1,6 @@
 {
   "name": "dsh-aupdate",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "定时检查 DSH 插件更新，串行安装后就地生效，不重启。",
   "license": "MIT",
