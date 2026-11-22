@@ -3,3 +3,4 @@ node_modules/
 .DS_Store
 aupdate-history.json
 aupdate-settings.json
+*.tgz
