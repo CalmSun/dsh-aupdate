@@ -538,7 +538,7 @@ window.__ModuleLoader__.load({
       return h('div', { style: S.wrap },
         h('div', { style: S.head },
           h('h3', { style: S.title }, T.title),
-          h('p', { style: S.sub }, T.sub),
+          h('p', { style: S.sub }, T.subtitle),
         ),
         h('div', { style: S.card },
           h(SwitchRow, { label: T.enabled, hint: T.enabledHint, value: draft.enabled, onChange: (v) => patch('enabled', v) }),
