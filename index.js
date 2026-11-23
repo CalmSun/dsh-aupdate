@@ -110,6 +110,44 @@ function flushLogNow() {
   } catch {}
 }
 
+/** 设置页最多回看多少行。再多就不该在这个面板里看了，直接开文件。 */
+const LOG_TAIL_MAX_LINES = 1000
+
+/**
+ * 读日志尾部给设置页看。
+ *
+ * 日志文件满 1MB 就轮转成 .old，整份读进来再切尾巴比拼 offset 简单得多，
+ * 代价也就是一次 1MB 的同步读。读之前先把待写队列刷下去，否则「刚点了检查、
+ * 面板里却没有这一行」——差的就是 setImmediate 那一拍。
+ * 读不到不算错误：可能从没跑过检查，也可能用户把文件删了。
+ */
+function readLogTail(limit) {
+  try {
+    flushLogNow()
+  } catch {}
+  const file = logPath()
+  const want = Math.min(Math.max(Math.floor(Number(limit)) || 200, 1), LOG_TAIL_MAX_LINES)
+  let raw
+  try {
+    raw = readFileSync(file, 'utf8')
+  } catch {
+    return { path: file, exists: false, size: 0, total: 0, rows: [], rotated: existsSync(file + '.old') }
+  }
+  const all = raw.split('\n')
+  // 每个进程都会补换行，split 后末尾必然多一个空串。
+  if (all.length > 0 && all[all.length - 1] === '') all.pop()
+  const rows = []
+  for (const line of all.slice(-want)) {
+    const match = /^\[([^\]]+)\] ([\s\S]*)$/u.exec(line)
+    rows.push(match === null ? { at: '', text: line } : { at: match[1], text: match[2] })
+  }
+  let size = 0
+  try {
+    size = statSync(file).size
+  } catch {}
+  return { path: file, exists: true, size, total: all.length, rows, rotated: existsSync(file + '.old') }
+}
+
 /** 防御性读属性：Cordis 对未声明的读会抛。 */
 function propOf(target, key) {
   try {
@@ -1603,6 +1641,10 @@ function registerRoutes(scope, ctxRef) {
           sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef))
           return
         }
+        if (suffix === '/logs') {
+          sendJson(res, 200, readLogTail(url.searchParams.get('lines')))
+          return
+        }
         sendJson(res, 404, { error: 'unknown endpoint' })
         return
       }
@@ -1677,7 +1719,7 @@ function registerRoutes(scope, ctxRef) {
   }
 }
 
-export { compareVersions, upgradeVerdict, pickRollbackTarget, readHistory, historyPath, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides, takeProfileLock, releaseProfileLock, sessionAgeMinutes, activityReasons, settingsSnapshot, snapshotProfile, snapshotRoot, pruneSnapshots, nextDelayMinutes }
+export { compareVersions, upgradeVerdict, pickRollbackTarget, readHistory, historyPath, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides, takeProfileLock, releaseProfileLock, sessionAgeMinutes, activityReasons, settingsSnapshot, snapshotProfile, snapshotRoot, pruneSnapshots, nextDelayMinutes, readLogTail, logPath }
 
 export function apply(ctx, config) {
   const ctxRef = { ctx, config }

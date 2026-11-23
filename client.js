@@ -73,6 +73,16 @@ window.__ModuleLoader__.load({
       gateLocked: '另一个进程正在装：{who}',
         allowPrerelease: '允许预发布版本',
         allowPrereleaseHint: '关闭时只装正式版；走 next 标签的 DSH 本体不受影响',
+        logs: '运行日志',
+        logsHint: '插件最近写了什么。装完包、查到新版本、失败原因都在这里',
+        logsEmpty: '还没有日志；这个 profile 下这次启动还没跑过检查',
+        logsMissing: '日志文件不存在（还没跑过，或被删了）',
+        logsLines: '显示行数',
+        logsRefresh: '刷新',
+        logsAuto: '自动刷新',
+        logsAutoHint: '每 5 秒拉一次，正在排查时开着',
+        logsRotated: '日志已超过 1MB，旧内容在 .old 里',
+        logsTotal: '共 {n} 行',
         history: '更新记录',
         historyEmpty: '还没有安装过任何更新',
         rollback: '回滚',
@@ -148,6 +158,16 @@ window.__ModuleLoader__.load({
       gateLocked: 'another process is installing: {who}',
         allowPrerelease: 'Allow prereleases',
         allowPrereleaseHint: 'Off installs stable only; DSH itself on the next tag is unaffected',
+        logs: 'Run log',
+        logsHint: 'What the plugin has been doing: installs, new versions found, failure reasons',
+        logsEmpty: 'No log lines yet; no check has run in this profile since it started',
+        logsMissing: 'Log file does not exist (never ran, or it was deleted)',
+        logsLines: 'Lines',
+        logsRefresh: 'Refresh',
+        logsAuto: 'Auto refresh',
+        logsAutoHint: 'Polls every 5s; turn it on while debugging',
+        logsRotated: 'Log passed 1MB; older content is in .old',
+        logsTotal: '{n} lines',
         history: 'Update history',
         historyEmpty: 'No update has been installed yet',
         rollback: 'Roll back',
@@ -230,6 +250,15 @@ window.__ModuleLoader__.load({
       return response.json()
     }
 
+    async function getLogs(lines) {
+      const response = await fetch(endpoint('logs') + '?lines=' + encodeURIComponent(String(lines)), {
+        headers: { accept: 'application/json' },
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error('logs ' + response.status)
+      return response.json()
+    }
+
     async function saveState(patch) {
       const response = await fetch(endpoint('state'), {
         method: 'POST',
@@ -281,6 +310,10 @@ window.__ModuleLoader__.load({
       status: { fontSize: '12px', opacity: 0.7 },
       err: { fontSize: '12px', color: '#d9534f' },
       meta: { display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '12px', opacity: 0.7 },
+      // 等宽 + 可滚动：日志要能对齐看时间戳，也不能把整页顶长。
+      logBox: { margin: 0, padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.22)', background: 'rgba(128,128,128,0.06)', fontSize: '11.5px', lineHeight: 1.55, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', maxHeight: '260px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
+      logTime: { opacity: 0.5 },
+      logText: {},
     }
 
     function Toggle(props) {
@@ -654,7 +687,80 @@ window.__ModuleLoader__.load({
               ),
           rollHint ? h('span', { style: S.status }, rollHint) : null,
         ),
+        h(LogCard, null),
         h('span', { style: S.hint }, T.scope),
+      )
+    }
+
+    /**
+     * 日志卡片。
+     *
+     * 单独成一个组件，而不是塞进 AutoUpdateCard：日志要能在「自动刷新」开着时
+     * 每 5 秒重渲染自己，不该把整张设置卡片连同输入框一起重渲染——那样光标会跳。
+     */
+    function LogCard() {
+      const [lines, setLines] = useState(200)
+      const [data, setData] = useState(null)
+      const [phase, setPhase] = useState('loading') // loading | ready | missing
+      const [auto, setAuto] = useState(false)
+      const [tick, setTick] = useState(0)
+
+      const refresh = useCallback(async () => {
+        try {
+          const next = await getLogs(lines)
+          setData(next)
+          setPhase(next?.exists === false ? 'missing' : 'ready')
+        } catch {
+          setPhase('missing')
+        }
+      }, [lines])
+
+      // lines 变了要立刻重取；tick 是自动刷新用来触发同一段逻辑的。
+      useEffect(() => { void refresh() }, [refresh, tick])
+
+      useEffect(() => {
+        if (!auto) return undefined
+        const timer = setInterval(() => setTick((n) => n + 1), 5000)
+        return () => clearInterval(timer)
+      }, [auto])
+
+      const rows = data?.rows ?? []
+      const total = data?.total ?? 0
+
+      return h('div', { style: S.card },
+        h('div', { style: S.row },
+          h('div', { style: S.labelBox },
+            h('span', { style: S.label }, T.logs),
+            h('span', { style: S.hint }, T.logsHint),
+          ),
+          h('div', { style: S.actions },
+            h('select', {
+              value: String(lines),
+              onChange: (event) => setLines(Number(event.target.value)),
+              style: S.select,
+            }, [100, 200, 500, 1000].map((n) => h('option', { key: n, value: String(n) }, n + ' ' + T.logsLines))),
+            h('button', { type: 'button', style: S.btn, onClick: () => setTick((n) => n + 1) }, T.logsRefresh),
+          ),
+        ),
+        h(SwitchRow, { label: T.logsAuto, hint: T.logsAutoHint, value: auto, onChange: setAuto }),
+        phase === 'loading' && data === null
+          ? h('span', { style: S.status }, '…')
+          : phase === 'missing' || (data !== null && data.exists === false)
+            ? h('span', { style: S.status }, T.logsMissing)
+            : rows.length === 0
+              ? h('span', { style: S.status }, T.logsEmpty)
+              : h('pre', { style: S.logBox, title: data?.path || '' },
+                  rows.map((row, index) => h('div', { key: index },
+                    row.at ? h('span', { style: S.logTime }, row.at.replace('T', ' ').replace('Z', '') + '  ') : null,
+                    h('span', { style: S.logText }, row.text),
+                  )),
+                ),
+        data !== null && data.exists !== false
+          ? h('div', { style: S.meta },
+              h('span', { title: data.path || '' }, T.logsTotal.replace('{n}', String(total))),
+              data.rotated === true ? h('span', null, T.logsRotated) : null,
+            )
+          : null,
       )
     }
 

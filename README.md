@@ -118,7 +118,17 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 ## 设置页
 
 插件页里的这一行有摘要和整页两种视图，保存后立刻按新节奏重排，不用重启。
-读写走 `/api/dsh-aupdate/{state,run,rollback}`。
+读写走 `/api/dsh-aupdate/{state,run,rollback,logs}`。
+
+整页最下面是**运行日志**卡片，直接看插件最近写了什么，不用再去翻文件：
+
+- 可选显示最近 100 / 200 / 500 / 1000 行，默认 200
+- 打开「自动刷新」后每 5 秒拉一次，正在排查时开着；关掉就完全不动
+- 读之前会先把待写队列刷下去，所以刚点完检查，那几行马上就在里面
+- 时间戳按本地时区显示，文件超过 1MB 轮转给一句提示，另附总行数
+
+日志只经由 `GET /api/dsh-aupdate/logs?lines=N` 读，参数夹在 1 到 1000 之间，
+不提供写入口——面板能看，但改不了日志。
 
 ## 效率
 
@@ -136,12 +146,24 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 
 `~/.dsh/aupdate.log`，写完即刷，超过上限自动轮转。设置覆盖存于 `~/.dsh/aupdate-settings.json`。
 
+这个文件可以在设置页里直接看，见上一节。路径可用 `DSH_AUTO_UPDATE_LOG` 改。
+
 ## English
 
 Scheduled updater for the DSH plugins installed in a profile. It checks npm on an
 interval, installs one package at a time, and applies the result without restarting
-DSH. A settings page lets you change the policy, read the update history, and roll
-a bad version back.
+DSH. A settings page lets you change the policy, read the update history, roll
+a bad version back, and watch the run log without leaving the page.
+
+The full-page view ends with a **run log** card, so you never have to go open the
+file: pick the last 100 / 200 / 500 / 1000 lines (200 by default), and turn on
+auto-refresh to poll every 5 seconds while you are debugging. The pending write
+queue is flushed before reading, so lines from the check you just triggered are
+already there. Timestamps render in local time, rotation past 1 MB is called out,
+and the total line count is shown.
+
+The log is read through `GET /api/dsh-aupdate/logs?lines=N` only, with the count
+clamped between 1 and 1000. There is no write path: the page can look, not edit.
 
 ### Install
 
@@ -285,6 +307,9 @@ pile up one row per cycle and bury the entry you actually want to return to.
 
 `~/.dsh/aupdate.log`, flushed on write and rotated when it grows. Setting overrides
 live in `~/.dsh/aupdate-settings.json`.
+
+You can read this file straight from the settings page (see above). Point it
+elsewhere with `DSH_AUTO_UPDATE_LOG`.
 
 ## License
 
