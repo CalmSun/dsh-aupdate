@@ -1218,7 +1218,9 @@ async function runCycle(mode, ctxRef) {
               name: dep.name,
               current,
               target,
-              why: '上次安装失败，' + until.toISOString().slice(0, 16).replace('T', ' ') + ' 前不再重试',
+              // 这里是服务端拼的纯文本，拿不到浏览器时区，所以显式写 UTC，
+              // 免得把一个 UTC 时刻当成本地时间读。
+              why: '上次安装失败，' + until.toISOString().slice(0, 16).replace('T', ' ') + ' UTC 前不再重试',
             }
           }
           return { name: dep.name, current, target, tag }

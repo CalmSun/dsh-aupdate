@@ -751,7 +751,7 @@ window.__ModuleLoader__.load({
               ? h('span', { style: S.status }, T.logsEmpty)
               : h('pre', { style: S.logBox, title: data?.path || '' },
                   rows.map((row, index) => h('div', { key: index },
-                    row.at ? h('span', { style: S.logTime }, row.at.replace('T', ' ').replace('Z', '') + '  ') : null,
+                    row.at ? h('span', { style: S.logTime }, formatWhen(row.at) + '  ') : null,
                     h('span', { style: S.logText }, row.text),
                   )),
                 ),
