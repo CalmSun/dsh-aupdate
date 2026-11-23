@@ -130,6 +130,11 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 日志只经由 `GET /api/dsh-aupdate/logs?lines=N` 读，参数夹在 1 到 1000 之间，
 不提供写入口——面板能看，但改不了日志。
 
+四个接口都要先过宿主的连接准入（`connection.admit` / 旧宿主的
+`requestRejection`），没通过就回 401/403，拿不到 `connection` 服务或它抛错时
+一律 503。不用「只认回环地址」这种判据：浏览器里任何网页都能向 127.0.0.1 发请求。
+`/state` 和 `/logs` 也照样要过，因为它们分别会吐全量设置和读磁盘上的日志文件。
+
 ## 效率
 
 - 只取 dist-tags：24 个包从 2.88 MB 降到 655 B
@@ -161,6 +166,13 @@ auto-refresh to poll every 5 seconds while you are debugging. The pending write
 queue is flushed before reading, so lines from the check you just triggered are
 already there. Timestamps render in local time, rotation past 1 MB is called out,
 and the total line count is shown.
+
+All four routes go through the host's connection admission (`connection.admit`, or
+`requestRejection` on older hosts) first: a rejection answers 401/403, and a missing
+or throwing `connection` service answers 503. Checking only the loopback address is
+not an admission decision — any web page in the browser can reach 127.0.0.1.
+`/state` and `/logs` are gated too; they expose the whole settings object and read
+the log file off disk.
 
 The log is read through `GET /api/dsh-aupdate/logs?lines=N` only, with the count
 clamped between 1 and 1000. There is no write path: the page can look, not edit.

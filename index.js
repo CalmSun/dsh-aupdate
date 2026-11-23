@@ -158,6 +158,16 @@ function propOf(target, key) {
 }
 
 function serviceOf(ctx, key) {
+  // 有 reflect 就先走 reflect.get：cordis 4 的 ctx 是 Proxy，裸读（以及 ctx.get）
+  // 碰未在 inject 里声明的服务会抛 "cannot get property without inject"，而不是
+  // 返回 undefined。connection 正是那种没声明的服务，用 ctx.get 会被我们自己的
+  // catch 吞成 null，于是每个请求都判成 503。
+  try {
+    const reflect = propOf(ctx, 'reflect')
+    if (reflect !== undefined && reflect !== null && typeof reflect.get === 'function') {
+      return reflect.get(key) ?? null
+    }
+  } catch {}
   try {
     return (typeof ctx?.get === 'function' ? ctx.get(key) : undefined) ?? null
   } catch {
@@ -1536,6 +1546,52 @@ function sendJson(res, status, value) {
   } catch {}
 }
 
+/**
+ * 谁能调这些路由。
+ *
+ * 浏览器里任何一个网页都能向 127.0.0.1 发请求，所以「只看 Host/Origin/回环地址」
+ * 不算准入。宿主把这件事交给 connection 服务，这里只做转发：
+ *
+ * - 新宿主是 admit(req)，返回 { rejection: status } 信封；旧宿主是
+ *   requestRejection(req)，直接返回状态码。两种拼写都要认，认错一种就会把
+ *   鉴权整个关掉。
+ * - 返回 undefined 才是放行。
+ * - 服务不在、或调用抛错，一律当拒绝（503）。这里不能「降级成放行」——
+ *   那等于宿主一抖动，设置页对全世界的网页开放。
+ *
+ * connection 故意不写进 inject：cordis 的注入是全或无的，多声明一个依赖会让
+ * 整个作用域等一个可能永远不来的服务。改成每次请求惰性读一次。
+ */
+function admitRequest(scope, req, res) {
+  const connection = serviceOf(scope, 'connection')
+  // 必须回 true：调用点写的是 if (admitRequest(...)) return，回 undefined 的话
+  // 请求照旧往下走，鉴权就形同虚设（写的时候真踩过一次）。
+  const write = (status) => {
+    try {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify({ error: 'unauthorized' }))
+    } catch {}
+    return true
+  }
+  if (connection === null) return write(503)
+  let status
+  try {
+    const admit = propOf(connection, 'admit')
+    if (typeof admit === 'function') {
+      const verdict = admit.call(connection, req)
+      status = verdict && typeof verdict === 'object' ? verdict.rejection : undefined
+    } else {
+      const reject = propOf(connection, 'requestRejection')
+      if (typeof reject !== 'function') return write(503)
+      status = reject.call(connection, req)
+    }
+  } catch {
+    return write(503)
+  }
+  if (status === undefined || status === null) return false
+  return write(typeof status === 'number' ? status : 403)
+}
+
 function readBody(req) {
   return new Promise((settle) => {
     let size = 0
@@ -1635,6 +1691,9 @@ function registerRoutes(scope, ctxRef) {
   if (webServer === null || typeof webServer.register !== 'function') return false
   const handler = async (req, res) => {
     try {
+      // 先过宿主准入，再碰任何设置或文件。读接口也过：/state 里有全量设置，
+      // /logs 会读磁盘上的日志文件，都不该由任意网页拿到。
+      if (admitRequest(scope, req, res)) return
       const url = new URL(req.url ?? '/', 'http://localhost')
       const suffix = url.pathname.slice(ROUTE_PREFIX.length)
       const method = req.method ?? 'GET'
