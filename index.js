@@ -1586,12 +1586,9 @@ function settingsSnapshot(config, ctxRef) {
   }
 }
 
-function registerRoutes(ctx, ctxRef) {
-  const webServer = serviceOf(ctx, 'webServer')
-  if (webServer === null || typeof webServer.register !== 'function') {
-    writeLog('webServer unavailable: settings page will report it')
-    return false
-  }
+function registerRoutes(scope, ctxRef) {
+  const webServer = serviceOf(scope, 'webServer')
+  if (webServer === null || typeof webServer.register !== 'function') return false
   const handler = async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost')
@@ -1660,10 +1657,10 @@ function registerRoutes(ctx, ctxRef) {
     }
   }
   try {
-    const effect = propOf(ctx, 'effect')
+    const effect = propOf(scope, 'effect')
     const register = () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler })
     if (typeof effect === 'function') {
-      effect.call(ctx, register, 'dsh-aupdate: settings routes')
+      effect.call(scope, register, 'dsh-aupdate: settings routes')
       writeLog('settings route ready: ' + ROUTE_PREFIX)
       return true
     }
@@ -1701,19 +1698,44 @@ export function apply(ctx, config) {
       writeLog('tool registration threw: ' + oneLine(error?.message ?? error, 300))
     }
   }
+  // 路由和工具是同一类问题：apply 执行时 webServer 可能还没就绪，
+  // 一次性取服务会静默失败且永不重试。同样放进动态 inject 作用域里重放。
+  let routeService = null
+  const offerRoutes = (scope) => {
+    try {
+      const webServer = serviceOf(scope, 'webServer')
+      if (webServer === null || typeof webServer.register !== 'function') {
+        writeLog('webServer unavailable: settings page will report it')
+        return
+      }
+      if (routeService === webServer) return
+      const ok = registerRoutes(scope, ctxRef)
+      if (ok) routeService = webServer
+    } catch (error) {
+      writeLog('route registration threw: ' + oneLine(error?.message ?? error, 300))
+    }
+  }
   const inject = propOf(ctx, 'inject')
   if (typeof inject === 'function') {
+    // 兜底：inject 的作用域回调只在依赖齐备时重放，若是宿主不认 webServer
+    // 这个依赖名，回调可能永远不来。所以先就地抢一次，拿不到再等重放。
+    offerRoutes(ctx)
     try {
-      const fiber = inject.call(ctx, ['tools'], offerTool)
+      const fiber = inject.call(ctx, ['tools', 'webServer'], (scope) => {
+        offerTool(scope)
+        offerRoutes(scope)
+      })
       Promise.resolve(fiber).catch((error) => {
         writeLog('tool scope ended: ' + oneLine(error?.message ?? error, 300))
       })
     } catch (error) {
       writeLog('cannot offer the tool: ' + oneLine(error?.message ?? error, 300))
       offerTool(ctx)
+      offerRoutes(ctx)
     }
   } else {
     offerTool(ctx)
+    offerRoutes(ctx)
   }
 
   const runSafely = (mode) => {
@@ -1786,7 +1808,6 @@ export function apply(ctx, config) {
 
   // 设置页要能读到运行状态并改设置，所以路由最后注册、且与 enabled 无关：
   // 关掉定时检查之后，用户仍然要能看到这一页并把它重新打开。
-  registerRoutes(ctx, ctxRef)
   if (!settings.enabled) writeLog('disabled by config; scheduler parked, settings page still live')
 
   const stop = () => {
