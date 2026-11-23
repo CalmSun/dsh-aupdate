@@ -1549,7 +1549,11 @@ function settingsSnapshot(config, ctxRef) {
     history: readHistory().slice(0, 40),
     historyPath: historyPath(),
     // 下一轮什么时候跑：设置页把它直接显示出来，用户不用自己推算。
-    nextInMinutes: nextDelayMinutes(settings, new Date()),
+    // 调度器已经把「这一轮真实等多久」记在 pendingMinutes 上，优先用它；
+    // 取不到（比如定时器还没排上）才退回按当前规则现算。
+    nextInMinutes: typeof ctxRef?.pendingMinutes === 'number'
+      ? ctxRef.pendingMinutes
+      : nextDelayMinutes(settings, new Date()),
     // 被抑制的 pkg@版本：让人看得见「为什么这个包不更新了」。
     failures: readFailures().slice(0, 20).map((row) => {
       const at = Date.parse(String(row.at ?? ''))
@@ -1766,6 +1770,7 @@ export function apply(ctx, config) {
   let firstPending = true
 
   const clearScheduled = () => {
+    ctxRef.pendingMinutes = null
     if (scheduled === null) return
     try {
       clearTimeout(scheduled)
@@ -1784,6 +1789,10 @@ export function apply(ctx, config) {
     // 启动后第一次仍然只看 firstDelayMinutes，之后按当前调度模式算。
     const minutes = firstPending && live.checkOnStart ? live.firstDelayMinutes : nextDelayMinutes(live, new Date())
     firstPending = false
+    // 记下这一轮真实的等待时长，设置页按它显示「下一轮」。
+    // 直接拿 nextDelayMinutes 算会漏掉启动后那次短期检查：明明 5 分钟后就要跑，
+    // 面板却显示 1440 分钟，看的人只会以为「启动后根本不查」，于是手动点一次。
+    ctxRef.pendingMinutes = minutes
     const handle = setTimeout(() => {
       scheduled = null
       runSafely('update')
