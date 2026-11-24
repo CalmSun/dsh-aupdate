@@ -21,6 +21,9 @@ window.__ModuleLoader__.load({
         failed: '保存失败',
         runNow: '立刻检查',
         running: '正在检查…',
+        progressCheck: '正在检查更新…',
+        progressInstall: '正在安装第 {n}/{m} 个：{name}',
+        progressApply: '正在就地生效…',
         runDone: '检查完成',
         runFailed: '检查没能完成',
         lastRun: '上一次',
@@ -137,6 +140,9 @@ window.__ModuleLoader__.load({
         failed: 'Save failed',
         runNow: 'Check now',
         running: 'Checking…',
+        progressCheck: 'Checking for updates…',
+        progressInstall: 'Installing {n}/{m}: {name}',
+        progressApply: 'Applying in place…',
         runDone: 'Check finished',
         runFailed: 'Check could not finish',
         lastRun: 'Last run',
@@ -646,6 +652,8 @@ window.__ModuleLoader__.load({
       const [phase, setPhase] = useState('loading') // loading | ready | error
       const [saveHint, setSaveHint] = useState('')
       const [running, setRunning] = useState(false)
+      // 安装可能耗好几分钟（网络重试时更久），运行按钮旁边显示实时进度。
+      const [progress, setProgress] = useState(null)
       const [runHint, setRunHint] = useState('')
       const [rolling, setRolling] = useState('')
       const [rollHint, setRollHint] = useState('')
@@ -726,12 +734,37 @@ window.__ModuleLoader__.load({
       }, [])
 
 
+      /** 把后端进度翻成一行中文/英文；没进度就退回普通「正在检查」。 */
+      const runningText = (() => {
+        if (!running) return ''
+        if (progress?.phase === 'installing' && progress.total > 0) {
+          return T.progressInstall
+            .replace('{n}', String(progress.index))
+            .replace('{m}', String(progress.total))
+            .replace('{name}', String(progress.name || ''))
+        }
+        if (progress?.phase === 'applying') return T.progressApply
+        if (progress?.phase === 'checking') return T.progressCheck
+        return T.running
+      })()
+
       const fire = useCallback(async () => {
         if (running) return
         setRunning(true)
         setRunHint(T.running)
+        setProgress(null)
         try {
-          const result = await runNow('update')
+          // 点完立刻先读一次进度（后端可能已经在跑），之后每 2 秒跟一次。
+          const poll = async () => {
+            try {
+              setProgress((await getState(LANG))?.progress ?? null)
+            } catch {}
+          }
+          void poll()
+          const timer = setInterval(() => { void poll() }, 2000)
+          const result = await (async () => {
+            try { return await runNow('update') } finally { clearInterval(timer) }
+          })()
           if (result?.started === false) {
             setRunHint(result.reason || T.runFailed)
           } else {
@@ -747,6 +780,7 @@ window.__ModuleLoader__.load({
           setRunHint(T.runFailed)
         } finally {
           setRunning(false)
+          setProgress(null)
         }
       }, [running])
 
@@ -926,6 +960,10 @@ window.__ModuleLoader__.load({
             h('span', { style: S.label }, T.lastRun),
             h('button', { type: 'button', style: S.btn, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
           ),
+          // 进度单独占一行：安装要几分钟甚至更久，这里明确告诉用户在装第几个。
+          running && progress
+            ? h('span', { style: { ...S.status, color: '#4c9aff', fontWeight: 500 } }, runningText)
+            : null,
           last === null || last === undefined
             ? h('span', { style: S.status }, T.never)
             : h('div', { style: S.meta },

@@ -23,6 +23,8 @@ const LOG_MAX_BYTES = 1_000_000
 const FETCH_CONCURRENCY = 6
 /** 单个包安装的上限；实测最慢 1m51s。 */
 const INSTALL_TIMEOUT_MS = 420_000
+/** 超过这个时长就写一条明确提示：别让人把网络重试误当成卡死。 */
+const INSTALL_SLOW_MS = 120_000
 const RELOAD_TIMEOUT_MS = 180_000
 /** 这些包的 dist-tags.latest 落后于 next。 */
 const NEXT_TAG_SCOPES = ['@deepseek-ai/dsh-']
@@ -37,6 +39,23 @@ const LOCK_STALE_MS = 30 * 60 * 1000
 // 所以只能依赖函数声明（readLastRun/readJson 都提升），不能依赖下面的 const。
 let lastRun = readLastRun()
 let running = null
+
+/**
+ * 正在进行的这一轮的进度。
+ *
+ * 原来安装阶段只有开始/结束两条日志，中途 registry 超时重试好几分钟时界面上
+ * 一片空白——用户以为卡死。这里把「装到第几个、哪个包」记成可查询状态，
+ * /state 每次读都带上，设置页就能实时显示。
+ */
+let progress = null
+
+function setProgress(value) {
+  progress = value
+}
+
+function clearProgress() {
+  progress = null
+}
 
 function oneLine(value, limit = 2000) {
   const text = String(value ?? '')
@@ -190,6 +209,13 @@ function makeLogTemplates(lang) {
     disabledBySettings: () => (zh ? '设置里已关闭自动更新，定时器待命' : 'Auto-update is off in settings; scheduler parked'),
     disabledByConfig: () => (zh ? '配置里已关闭自动更新，定时器待命，设置页仍然可用' : 'Auto-update is off in config; scheduler parked, settings page stays live'),
     // 清理日志按对象报数，几个数字一处说完，免得刷三行。
+    // 安装进度：N/M 个 + 包名，超时时也给出上一包的明确提示。
+    installing: (n, total, name) => (zh
+      ? `正在安装第 ${n}/${total} 个：${name}`
+      : `Installing ${n}/${total}: ${name}`),
+    installTimeout: (name, minutes) => (zh
+      ? `${name} 安装超过 ${minutes} 分钟仍没结束，等本包收尾后继续`
+      : `${name} has been installing for over ${minutes} min; will continue when it finishes`),
     cleaned: (kind, rows, days) => (zh
       ? `清理${kind}：删掉 ${rows} 条超过 ${days} 天的`
       : `Cleaned ${kind}: removed ${rows} entr${rows === 1 ? 'y' : 'ies'} older than ${days} day(s)`),
@@ -1673,8 +1699,10 @@ async function hotApply(ctx, requiredBefore) {
 }
 function beginningRun(mode, ctxRef) {
   if (running !== null) return null
+  if (mode === 'update') setProgress({ phase: 'checking', index: 0, total: 0, name: '' })
   const promise = runCycle(mode, ctxRef).finally(() => {
     running = null
+    clearProgress()
   })
   running = promise
   return promise
@@ -1829,8 +1857,25 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
     const requiredBefore = activeEntryIds(ctxRef.ctx)
     // 自身放到最后：换掉自身之后，这一轮剩下的代码就来自旧模块了。
     const ordered = report.updates.slice().sort((a, b) => (a.name === name ? 1 : b.name === name ? -1 : 0))
-    for (const update of ordered) {
-      const outcome = await installOne(runner, profileName, profileDir, update.name, update.target)
+    const total = ordered.length
+    for (let i = 0; i < ordered.length; i += 1) {
+      const update = ordered[i]
+      // 每装一个之前更新一次进度；日志也写一行，日志卡片里能看到同样的话。
+      setProgress({ phase: 'installing', index: i + 1, total, name: update.name })
+      writeLog('installing', [i + 1, total, update.name])
+      // 慢装提示：到点就报，不等整个命令结束。pnpm 的网络重试会把 WARN
+      // 攒到结束才吐出来，中途必须有个「还在跑、已经跑了多久」的锚点。
+      const startedAt = Date.now()
+      const slowTimer = setTimeout(() => {
+        writeLog('installTimeout', [update.name, Math.round(INSTALL_SLOW_MS / 60000)])
+      }, INSTALL_SLOW_MS)
+      slowTimer.unref?.()
+      let outcome
+      try {
+        outcome = await installOne(runner, profileName, profileDir, update.name, update.target)
+      } finally {
+        clearTimeout(slowTimer)
+      }
       report.installed.push(outcome)
       writeLog('install', [update.name, update.target, outcome.ok === true, outcome.detail ?? ''])
       if (outcome.ok) {
@@ -1849,6 +1894,7 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
         noteFailure(update.name, update.target)
       }
     }
+    setProgress({ phase: 'applying', index: total, total, name: '' })
     const okCount = report.installed.filter((item) => item.ok).length
     if (okCount === 0) {
       report.status = 'failed'
@@ -2143,6 +2189,8 @@ function settingsSnapshot(config, ctxRef, lang) {
   return {
     settings,
     overrides: readOverrides(),
+    // 运行中的进度：没在跑时为 null，设置页据此决定要不要显示进度条。
+    progress: progress === null ? null : { ...progress },
     lastRun: lastRun === null ? null : {
       status: lastRun.status,
       reason: renderReason(lastRun.reason, lang),

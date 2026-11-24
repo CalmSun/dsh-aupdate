@@ -176,6 +176,8 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 - 打开「自动刷新」后每 5 秒拉一次，正在排查时开着；关掉就完全不动
 - 读之前会先把待写队列刷下去，所以刚点完检查，那几行马上就在里面
 - 时间戳按本地时区显示，文件超过 1MB 轮转给一句提示，另附总行数
+- 安装阶段逐条写「正在安装第 N/M 个：<包名>」，某个包超过 2 分钟还没结束会再写一条
+  明确的超时提示——网络重试时 pnpm 把 WARN 攒到结束才吐，中途得有个「还在跑」的锚点
 
 日志只经由 `GET /api/dsh-aupdate/logs?lines=N` 读，参数夹在 1 到 1000 之间，
 不提供写入口——面板能看，但改不了日志。
@@ -440,7 +442,11 @@ while the log and settings page keep recording.
 live in `~/.dsh/aupdate-settings.json`.
 
 The page renders the log newest first, so whatever just happened is at the top of the
-box instead of at the bottom of a scroll.
+box instead of at the bottom of a scroll. During installation it writes "Installing N/M:
+<name>" for each package and, past two minutes on any one package, an explicit slow-install
+notice — pnpm buffers network warnings until the command ends, so there needs to be an
+anchor in the meantime. The Last run card polls /state every two seconds while a cycle is
+active and shows the same progress live.
 
 Log lines are stored as an event code plus its arguments, not as finished sentences, so
 switching **Display language** re-renders history too. Lines written before 0.6.2 are
