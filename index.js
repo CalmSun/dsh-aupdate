@@ -91,37 +91,134 @@ function flushLog() {
   }
 }
 
-/** 日志里的状态词翻译成人话——面板是给人看的，不留英文状态码。 */
-const STATUS_TEXT = { done: '完成', blocked: '已让开', failed: '失败', skipped: '已跳过', none: '无', ok: '成功' }
+/**
+ * 结构化日志。
+ *
+ * 0.6.1 及以前是把成品句子写进文件：中文环境下写中文，那一刻语言就钉死了，
+ * 之后在设置页切成 English，历史行仍然全是中文。要让日志跟着语言走，落盘的内容
+ * 就不能是句子——这里改成写 code + 参数（一行一个 JSON 数组），等到读取时
+ * 才按请求的语言渲染。想加一种语言只是多一张模板表。
+ *
+ * 兼容：旧格式的行是成品句子，解析失败就原样显示，不丢历史。
+ */
 
-function statusText(value) {
-  return STATUS_TEXT[String(value ?? '')] ?? String(value ?? '')
+/** 状态词。运行结果是数据（done/skipped/…），显示成哪种语言由读取侧决定。 */
+const LOG_STATUS = {
+  zh: { done: '完成', blocked: '已让开', failed: '失败', skipped: '已跳过', none: '无', ok: '成功' },
+  en: { done: 'done', blocked: 'held off', failed: 'failed', skipped: 'skipped', none: 'none', ok: 'ok' },
 }
 
-/** 设置页提交的键名，日志里不该出现 enabled,autoApply 这种字面量。 */
-const FIELD_LABELS = {
-  enabled: '定时检查', autoApply: '自动安装', hotReload: '就地生效', checkOnStart: '启动先查',
-  idleOnly: '忙时不动手', notify: '更新提醒', intervalMinutes: '检查间隔',
-  firstDelayMinutes: '首次延迟', exclude: '不更新的包', allowMajor: '跨大版本',
-  allowPrerelease: '预发布', scheduleMode: '调度方式', dailyAt: '每天时刻',
-  everyHours: '每几小时', everyDays: '每几天', suppressHours: '失败抑制',
-  maxPerCycle: '单轮上限', sessionIdleMinutes: '会话静默',
+/** 设置项在日志里的名字：enabled / autoApply 这种字面量不该出现在面板上。 */
+const LOG_FIELD_LABELS = {
+  zh: {
+    lang: '显示语言', enabled: '定时检查', autoApply: '自动安装', hotReload: '就地生效',
+    checkOnStart: '启动先查', idleOnly: '忙时不动手', notify: '更新提醒',
+    intervalMinutes: '检查间隔', firstDelayMinutes: '首次延迟', exclude: '不更新的包',
+    allowMajor: '跨大版本', allowPrerelease: '预发布', scheduleMode: '调度方式',
+    dailyAt: '每天时刻', everyHours: '每几小时', everyDays: '每几天',
+    suppressHours: '失败抑制', maxPerCycle: '单轮上限', sessionIdleMinutes: '会话静默',
+  },
+  en: {
+    lang: 'display language', enabled: 'scheduled check', autoApply: 'auto-install',
+    hotReload: 'apply in place', checkOnStart: 'check on start', idleOnly: 'hold while busy',
+    notify: 'update notices', intervalMinutes: 'check interval', firstDelayMinutes: 'first delay',
+    exclude: 'never-update list', allowMajor: 'major upgrades', allowPrerelease: 'prereleases',
+    scheduleMode: 'schedule', dailyAt: 'time of day', everyHours: 'every N hours',
+    everyDays: 'every N days', suppressHours: 'failure suppression', maxPerCycle: 'per-cycle cap',
+    sessionIdleMinutes: 'session idle',
+  },
 }
 
-function fieldLabel(key) {
-  return FIELD_LABELS[key] ?? String(key)
+function makeLogTemplates(lang) {
+  const S = LOG_STATUS[lang] ?? LOG_STATUS.zh
+  const labels = LOG_FIELD_LABELS[lang] ?? LOG_FIELD_LABELS.zh
+  const zh = lang !== 'en'
+  const sep = zh ? '、' : ', '
+  const status = (value) => S[String(value ?? '')] ?? String(value ?? '')
+  const list = (value) => (Array.isArray(value) ? value.join(sep) : String(value ?? ''))
+  const onOff = (value) => (zh ? (value === true ? '开' : '关') : (value === true ? 'on' : 'off'))
+  return {
+    raw: (text) => String(text ?? ''),
+    checked: (n, u) => (zh ? `检查 ${n} 个插件，${u} 个可更新` : `Checked ${n} plugin(s), ${u} update(s) available`),
+    capped: (max, left) => (zh ? `本轮限量装 ${max} 个，剩下 ${left} 个下一轮再装` : `Capped at ${max} install(s) this cycle; ${left} left for the next round`),
+    skipInstall: (why) => (zh ? `跳过安装：${list(why)}` : `Skipped installing: ${list(why)}`),
+    snapshotTaken: (dir, files) => (zh ? `已留快照 ${dir}（${list(files)}）` : `Snapshot saved to ${dir} (${list(files)})`),
+    snapshotFailed: (msg) => (zh ? `留快照失败：${msg}` : `Snapshot failed: ${msg}`),
+    tookOverLock: (minutes) => (zh ? `接管了一个已挂 ${minutes} 分钟的安装锁` : `Took over an install lock left for ${minutes} min`),
+    install: (name, target, ok, detail) => (zh
+      ? `安装 ${name}@${target} → ${ok ? '成功' : '失败：' + (detail || '')}`
+      : `Installed ${name}@${target} → ${ok ? 'ok' : 'failed: ' + (detail || '')}`),
+    hotApply: (state, reason) => (zh
+      ? `就地生效 → ${status(state)}${reason ? '：' + reason : ''}`
+      : `Hot apply → ${status(state)}${reason ? ': ' + reason : ''}`),
+    cycle: (mode, state, reason) => (zh
+      ? `本轮${mode === 'check' ? '检查' : '更新'} → ${status(state)}：${reason}`
+      : `Cycle ${mode === 'check' ? 'check' : 'update'} → ${status(state)}: ${reason}`),
+    cycleFailed: (reason) => (zh ? `本轮失败：${reason}` : `Cycle failed: ${reason}`),
+    cycleThrew: (msg) => (zh ? `本轮抛错：${msg}` : `Cycle threw: ${msg}`),
+    rollback: (name, from, to, ok, detail) => (zh
+      ? `回滚 ${name} ${to} → ${from} → ${ok ? '成功' : '失败：' + (detail || '')}`
+      : `Rolled back ${name} ${to} → ${from} → ${ok ? 'ok' : 'failed: ' + (detail || '')}`),
+    rollbackRequest: (name, ok, reason) => (zh
+      ? `收到回滚请求 ${name} → ${ok ? '成功' : '失败：' + (reason || '')}`
+      : `Rollback requested for ${name} → ${ok ? 'ok' : 'failed: ' + (reason || '')}`),
+    settingsChanged: (keys) => (zh
+      ? `设置页改了：${list((Array.isArray(keys) ? keys : []).map((key) => labels[key] ?? String(key)))}`
+      : `Settings changed: ${list((Array.isArray(keys) ? keys : []).map((key) => labels[key] ?? String(key)))}`),
+    rescheduleFailed: (msg) => (zh ? `重排定时失败：${msg}` : `Rescheduling failed: ${msg}`),
+    toolFailed: (msg) => (zh ? `工具调用失败：${msg}` : `Tool call failed: ${msg}`),
+    toolUnavailable: (msg) => (zh ? `无法提供工具：${msg}` : `Could not offer the tool: ${msg}`),
+    toolRegistered: (ok) => (zh ? `工具注册：${ok ? '成功' : '失败'}` : `Tool registered: ${ok ? 'ok' : 'failed'}`),
+    toolRegisterThrew: (msg) => (zh ? `注册工具时抛错：${msg}` : `Tool registration threw: ${msg}`),
+    routeFailed: (msg) => (zh ? `接口处理出错：${msg}` : `Route failed: ${msg}`),
+    routeReady: (prefix) => (zh ? `设置接口已就绪：${prefix}` : `Settings route ready: ${prefix}`),
+    routeReadyNoScope: (prefix) => (zh ? `设置接口已就绪（没有 effect 作用域）：${prefix}` : `Settings route ready (no effect scope): ${prefix}`),
+    routeRegisterFailed: (msg) => (zh ? `无法注册设置接口：${msg}` : `Could not register the settings route: ${msg}`),
+    routeRegisterThrew: (msg) => (zh ? `注册设置接口时抛错：${msg}` : `Route registration threw: ${msg}`),
+    webServerMissing: () => (zh ? '没有 webServer 服务，设置页会显示不可用' : 'No webServer service; the settings page will report it'),
+    toolScopeEnded: (msg) => (zh ? `工具作用域已结束：${msg}` : `Tool scope ended: ${msg}`),
+    disabledBySettings: () => (zh ? '设置里已关闭自动更新，定时器待命' : 'Auto-update is off in settings; scheduler parked'),
+    disabledByConfig: () => (zh ? '配置里已关闭自动更新，定时器待命，设置页仍然可用' : 'Auto-update is off in config; scheduler parked, settings page stays live'),
+    ready: (minutes, autoApply, hotReload) => (zh
+      ? `已就绪：每 ${minutes} 分钟检查一次，自动安装=${onOff(autoApply)}，就地生效=${onOff(hotReload)}`
+      : `Ready: every ${minutes} min, autoApply=${onOff(autoApply)}, hotReload=${onOff(hotReload)}`),
+  }
 }
 
-function yesNo(value) {
-  return value === true ? '开' : '关'
+const LOG_TEMPLATES = { zh: makeLogTemplates('zh'), en: makeLogTemplates('en') }
+
+/** 只认 zh / en；其余（含 undefined）按中文渲染。 */
+function logLangOf(choice) {
+  return choice === 'en' ? 'en' : 'zh'
 }
 
-function writeLog(message) {
+/** 渲染一条日志。认不出的 code 退化成一串参数，至少不丢信息。 */
+function renderLogEntry(code, args, lang) {
+  const table = LOG_TEMPLATES[logLangOf(lang)]
+  const values = Array.isArray(args) ? args : []
+  const render = table[String(code)]
+  if (typeof render !== 'function') return '[' + String(code) + '] ' + values.join(' ')
   try {
-    console.log('[dsh-aupdate] ' + oneLine(message, 400))
+    return render(...values)
+  } catch {
+    return '[' + String(code) + '] ' + values.join(' ')
+  }
+}
+
+/**
+ * 写一条日志。
+ *
+ * @param code 模板名（见 makeLogTemplates），不是成品句子。
+ * @param args 模板参数；自由文本走 raw。
+ */
+function writeLog(code, args = []) {
+  const values = Array.isArray(args) ? args : []
+  try {
+    // 控制台固定中文：那是给开发者看的，跟界面语言无关。
+    console.log('[dsh-aupdate] ' + oneLine(renderLogEntry(code, values, 'zh'), 400))
   } catch {}
   try {
-    logQueue.push('[' + new Date().toISOString() + '] ' + oneLine(message) + '\n')
+    logQueue.push('[' + new Date().toISOString() + '] ' + oneLine(JSON.stringify([String(code), ...values])) + '\n')
     // 队列异常长说明写盘一直失败，直接丢掉最老的，避免吃内存。
     if (logQueue.length > 500) logQueue = logQueue.slice(-500)
     if (!logFlushing) {
@@ -149,7 +246,7 @@ const LOG_TAIL_MAX_LINES = 1000
  * 面板里却没有这一行」——差的就是 setImmediate 那一拍。
  * 读不到不算错误：可能从没跑过检查，也可能用户把文件删了。
  */
-function readLogTail(limit) {
+function readLogTail(limit, lang) {
   try {
     flushLogNow()
   } catch {}
@@ -165,9 +262,24 @@ function readLogTail(limit) {
   // 每个进程都会补换行，split 后末尾必然多一个空串。
   if (all.length > 0 && all[all.length - 1] === '') all.pop()
   const rows = []
+  const wanted = logLangOf(lang)
   for (const line of all.slice(-want)) {
     const match = /^\[([^\]]+)\] ([\s\S]*)$/u.exec(line)
-    rows.push(match === null ? { at: '', text: line } : { at: match[1], text: match[2] })
+    if (match === null) {
+      rows.push({ at: '', text: line })
+      continue
+    }
+    const body = match[2]
+    // 新格式是 JSON 数组；0.6.1 及更早写的是成品句子，解析不出就原样显示。
+    let parsed = null
+    if (body.startsWith('[')) {
+      try { parsed = JSON.parse(body) } catch {}
+    }
+    if (Array.isArray(parsed) && typeof parsed[0] === 'string') {
+      rows.push({ at: match[1], text: renderLogEntry(parsed[0], parsed.slice(1), wanted) })
+    } else {
+      rows.push({ at: match[1], text: body })
+    }
   }
   let size = 0
   try {
@@ -1137,7 +1249,7 @@ function snapshotProfile(profileDir, now) {
     return { dir, files: saved }
   } catch (error) {
     // 留底失败不该拦住更新本身：它只是事后证据，不是前置条件。
-    writeLog('留快照失败：' + oneLine(error?.message ?? error, 200))
+    writeLog('snapshotFailed', [oneLine(error?.message ?? error, 200)])
     return null
   }
 }
@@ -1196,7 +1308,7 @@ function takeProfileLock(profileDir, now) {
   } catch {}
   try {
     writeFileSync(file, stamp + '\n', { encoding: 'utf8', flag: 'wx' })
-    writeLog('接管了一个已挂 ' + ageMinutes + ' 分钟的安装锁')
+    writeLog('tookOverLock', [ageMinutes])
     return { ok: true, file }
   } catch (error) {
     return { ok: false, reason: '抢锁失败：' + oneLine(error?.message ?? error, 160) }
@@ -1366,7 +1478,7 @@ async function runCycle(mode, ctxRef) {
         else report.skipped.push(answer)
       }
     }
-    writeLog('检查 ' + report.checked + ' 个插件，' + report.updates.length + ' 个可更新')
+    writeLog('checked', [report.checked, report.updates.length])
     if (report.updates.length === 0) {
       report.reason = '没有可更新的插件'
       return report
@@ -1376,7 +1488,7 @@ async function runCycle(mode, ctxRef) {
     const deferred = settings.maxPerCycle > 0 ? report.updates.length - settings.maxPerCycle : 0
     if (deferred > 0) {
       report.updates = report.updates.slice(0, settings.maxPerCycle)
-      writeLog('本轮限量装 ' + settings.maxPerCycle + ' 个，剩下 ' + deferred + ' 个下一轮再装')
+      writeLog('capped', [settings.maxPerCycle, deferred])
     }
     if (mode === 'check' || !settings.autoApply) {
       report.reason = '只查不装'
@@ -1391,7 +1503,7 @@ async function runCycle(mode, ctxRef) {
       if (why.length > 0) {
         report.status = 'blocked'
         report.reason = why.join('；') + '，这一轮不安装'
-        writeLog('跳过安装：' + why.join('；'))
+        writeLog('skipInstall', [why])
         return report
       }
     }
@@ -1406,7 +1518,7 @@ async function runCycle(mode, ctxRef) {
     if (!lock.ok) {
       report.status = 'blocked'
       report.reason = lock.reason
-      writeLog('跳过安装：' + lock.reason)
+      writeLog('skipInstall', [lock.reason])
       return report
     }
     try {
@@ -1414,7 +1526,7 @@ async function runCycle(mode, ctxRef) {
       const snapshot = snapshotProfile(profileDir, new Date())
       if (snapshot !== null) {
         report.snapshot = snapshot.dir
-        writeLog('已留快照 ' + snapshot.dir + '（' + snapshot.files.join('、') + '）')
+        writeLog('snapshotTaken', [snapshot.dir, snapshot.files])
       }
       return await applyUpdates(ctxRef, report, settings, runner, profileDir, profileName)
     } finally {
@@ -1423,7 +1535,7 @@ async function runCycle(mode, ctxRef) {
   } catch (error) {
     report.status = 'failed'
     report.reason = oneLine(error?.message ?? error, 400)
-    writeLog('本轮失败：' + report.reason)
+    writeLog('cycleFailed', [report.reason])
     return report
   } finally {
     report.finishedAt = new Date().toISOString()
@@ -1432,7 +1544,7 @@ async function runCycle(mode, ctxRef) {
       at: report.finishedAt,
       checked: report.checked,
       updates: report.updates.map((item) => item.name + ' ' + (item.current ?? '?') + ' -> ' + item.target),
-      installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' 失败')),
+      installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' !failed')),
       reload: report.reload?.status ?? 'none',
       reason: report.reason,
       snapshot: report.snapshot,
@@ -1452,7 +1564,7 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
     for (const update of ordered) {
       const outcome = await installOne(runner, profileName, profileDir, update.name, update.target)
       report.installed.push(outcome)
-      writeLog('安装 ' + update.name + '@' + update.target + ' → ' + (outcome.ok ? '成功' : '失败：' + outcome.detail))
+      writeLog('install', [update.name, update.target, outcome.ok === true, outcome.detail ?? ''])
       if (outcome.ok) {
         clearFailure(update.name, update.target)
         appendHistory({
@@ -1489,7 +1601,7 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
       return report
     }
     report.reload = await hotApply(ctxRef.ctx, requiredBefore)
-    writeLog('就地生效 → ' + statusText(report.reload.status) + (report.reload.reason ? '：' + report.reload.reason : ''))
+    writeLog('hotApply', [report.reload.status, report.reload.reason ?? ''])
     report.reason = '已安装 ' + okCount + ' 个；' + (report.reload.reason ?? '')
     if (report.reload.status === 'failed') report.status = 'failed'
     else if (report.reload.status === 'blocked' || report.reload.status === 'restart') report.status = 'partial'
@@ -1552,7 +1664,7 @@ async function rollbackOne(ctxRef, entryName) {
   } finally {
     releaseProfileLock(lock)
   }
-  writeLog('回滚 ' + row.name + ' ' + row.to + ' → ' + row.from + ' → ' + (outcome.ok ? '成功' : '失败：' + outcome.detail))
+  writeLog('rollback', [row.name, row.from, row.to, outcome.ok === true, outcome.detail ?? ''])
   if (!outcome.ok) return { ok: false, reason: outcome.detail }
   const next = rows.slice()
   next.unshift({
@@ -1631,19 +1743,19 @@ function registerTool(ctx, config) {
             reason: report.reason || '',
             checked: report.checked,
             updates: report.updates.map((item) => item.name + ' ' + (item.current ?? '?') + ' -> ' + item.target),
-            installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' 失败')),
+            installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' !failed')),
             reload: report.reload?.status ?? 'none',
             skipped: report.skipped.map((item) => item.name + '：' + item.why),
           }
         } catch (error) {
-          writeLog('工具调用失败：' + oneLine(error?.message ?? error, 300))
+          writeLog('toolFailed', [oneLine(error?.message ?? error, 300)])
           return { status: 'failed', reason: '没能完成，插件状态需要核对', checked: 0, updates: [], installed: [], reload: 'none' }
         }
       },
     }), 'dsh-aupdate: plugin_updater')
     return true
   } catch (error) {
-    writeLog('无法提供工具：' + oneLine(error?.message ?? error, 300))
+    writeLog('toolUnavailable', [oneLine(error?.message ?? error, 300)])
     return false
   }
 }
@@ -1835,7 +1947,7 @@ function registerRoutes(scope, ctxRef) {
           return
         }
         if (suffix === '/logs') {
-          sendJson(res, 200, readLogTail(url.searchParams.get('lines')))
+          sendJson(res, 200, readLogTail(url.searchParams.get('lines'), url.searchParams.get('lang')))
           return
         }
         sendJson(res, 404, { error: 'unknown endpoint' })
@@ -1853,12 +1965,12 @@ function registerRoutes(scope, ctxRef) {
             sendJson(res, 500, { error: result.error })
             return
           }
-          writeLog('设置页改了：' + Object.keys(body).map(fieldLabel).join('、'))
+          writeLog('settingsChanged', [Object.keys(body)])
           // 改完立刻按新设置重排，否则要等下一次触发才换节奏。
           try {
             if (typeof ctxRef.reschedule === 'function') ctxRef.reschedule()
           } catch (error) {
-            writeLog('重排定时失败：' + oneLine(error?.message ?? error, 200))
+            writeLog('rescheduleFailed', [oneLine(error?.message ?? error, 200)])
           }
           sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef))
           return
@@ -1871,7 +1983,7 @@ function registerRoutes(scope, ctxRef) {
             return
           }
           const outcome = await rollbackOne(ctxRef, target)
-          writeLog('收到回滚请求 ' + target + ' → ' + (outcome.ok ? '成功' : '失败：' + outcome.reason))
+          writeLog('rollbackRequest', [target, outcome.ok === true, outcome.reason ?? ''])
           sendJson(res, outcome.ok ? 200 : 409, outcome)
           return
         }
@@ -1891,7 +2003,7 @@ function registerRoutes(scope, ctxRef) {
       }
       sendJson(res, 405, { error: 'method not allowed' })
     } catch (error) {
-      writeLog('接口处理出错：' + oneLine(error?.message ?? error, 300))
+      writeLog('routeFailed', [oneLine(error?.message ?? error, 300)])
       try { sendJson(res, 500, { error: 'internal' }) } catch {}
     }
   }
@@ -1900,14 +2012,14 @@ function registerRoutes(scope, ctxRef) {
     const register = () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler })
     if (typeof effect === 'function') {
       effect.call(scope, register, 'dsh-aupdate: settings routes')
-      writeLog('设置接口已就绪：' + ROUTE_PREFIX)
+      writeLog('routeReady', [ROUTE_PREFIX])
       return true
     }
     register()
-    writeLog('设置接口已就绪（没有 effect 作用域）：' + ROUTE_PREFIX)
+    writeLog('routeReadyNoScope', [ROUTE_PREFIX])
     return true
   } catch (error) {
-    writeLog('无法注册设置接口：' + oneLine(error?.message ?? error, 300))
+    writeLog('routeRegisterFailed', [oneLine(error?.message ?? error, 300)])
     return false
   }
 }
@@ -1926,15 +2038,15 @@ export function apply(ctx, config) {
     try {
       const tools = serviceOf(scope, 'tools')
       if (tools === null || typeof tools.register !== 'function') {
-        writeLog('工具注册失败')
+        writeLog('toolRegistered', [false])
         return
       }
       if (toolService === tools) return
       toolService = tools
       const ok = registerTool(scope, config)
-      writeLog('工具注册：' + (ok ? '成功' : '失败'))
+      writeLog('toolRegistered', [ok === true])
     } catch (error) {
-      writeLog('注册工具时抛错：' + oneLine(error?.message ?? error, 300))
+      writeLog('toolRegisterThrew', [oneLine(error?.message ?? error, 300)])
     }
   }
   // 路由和工具是同一类问题：apply 执行时 webServer 可能还没就绪，
@@ -1944,14 +2056,14 @@ export function apply(ctx, config) {
     try {
       const webServer = serviceOf(scope, 'webServer')
       if (webServer === null || typeof webServer.register !== 'function') {
-        writeLog('没有 webServer 服务，设置页会显示不可用')
+        writeLog('webServerMissing', [])
         return
       }
       if (routeService === webServer) return
       const ok = registerRoutes(scope, ctxRef)
       if (ok) routeService = webServer
     } catch (error) {
-      writeLog('注册设置接口时抛错：' + oneLine(error?.message ?? error, 300))
+      writeLog('routeRegisterThrew', [oneLine(error?.message ?? error, 300)])
     }
   }
   const inject = propOf(ctx, 'inject')
@@ -1965,10 +2077,10 @@ export function apply(ctx, config) {
         offerRoutes(scope)
       })
       Promise.resolve(fiber).catch((error) => {
-        writeLog('工具作用域已结束：' + oneLine(error?.message ?? error, 300))
+        writeLog('toolScopeEnded', [oneLine(error?.message ?? error, 300)])
       })
     } catch (error) {
-      writeLog('无法提供工具：' + oneLine(error?.message ?? error, 300))
+      writeLog('toolUnavailable', [oneLine(error?.message ?? error, 300)])
       offerTool(ctx)
       offerRoutes(ctx)
     }
@@ -1981,9 +2093,9 @@ export function apply(ctx, config) {
     const go = async () => {
       try {
         const report = await beginningRun(mode, ctxRef)
-        if (report !== null) writeLog('本轮' + (mode === 'check' ? '检查' : '更新') + ' → ' + statusText(report.status) + '：' + report.reason)
+        if (report !== null) writeLog('cycle', [mode, report.status, report.reason])
       } catch (error) {
-        writeLog('本轮抛错：' + oneLine(error?.message ?? error, 300))
+        writeLog('cycleThrew', [oneLine(error?.message ?? error, 300)])
       }
     }
     void go()
@@ -2018,7 +2130,7 @@ export function apply(ctx, config) {
     clearScheduled()
     const live = settingsOf(ctxRef.config)
     if (!live.enabled) {
-      writeLog('设置里已关闭自动更新，定时器待命')
+      writeLog('disabledBySettings', [])
       return
     }
     // 启动后第一次仍然只看 firstDelayMinutes，之后按当前调度模式算。
@@ -2052,7 +2164,7 @@ export function apply(ctx, config) {
 
   // 设置页要能读到运行状态并改设置，所以路由最后注册、且与 enabled 无关：
   // 关掉定时检查之后，用户仍然要能看到这一页并把它重新打开。
-  if (!settings.enabled) writeLog('配置里已关闭自动更新，定时器待命，设置页仍然可用')
+  if (!settings.enabled) writeLog('disabledByConfig', [])
 
   const stop = () => {
     for (const off of timers.splice(0)) {
@@ -2068,7 +2180,7 @@ export function apply(ctx, config) {
     } catch {}
   }
 
-  writeLog('已就绪：每 ' + settings.intervalMinutes + ' 分钟检查一次，自动安装=' + yesNo(settings.autoApply) + '，就地生效=' + yesNo(settings.hotReload))
+  writeLog('ready', [settings.intervalMinutes, settings.autoApply === true, settings.hotReload === true])
 }
 
 

@@ -345,8 +345,10 @@ window.__ModuleLoader__.load({
       return response.json()
     }
 
-    async function getLogs(lines) {
-      const response = await fetch(endpoint('logs') + '?lines=' + encodeURIComponent(String(lines)), {
+    async function getLogs(lines, lang) {
+      // 日志在磁盘上存的是 code + 参数，正文由后端按这里要的语言渲染。
+      const wanted = lang === 'en' ? 'en' : 'zh'
+      const response = await fetch(endpoint('logs') + '?lines=' + encodeURIComponent(String(lines)) + '&lang=' + wanted, {
         headers: { accept: 'application/json' },
         cache: 'no-store',
       })
@@ -883,15 +885,16 @@ window.__ModuleLoader__.load({
 
       const refresh = useCallback(async () => {
         try {
-          const next = await getLogs(lines)
+          // LANG 进依赖：切换显示语言时这一栏要重新取，否则日志正文还是旧语言。
+          const next = await getLogs(lines, LANG)
           setData(next)
           setPhase(next?.exists === false ? 'missing' : 'ready')
         } catch {
           setPhase('missing')
         }
-      }, [lines])
+      }, [lines, LANG])
 
-      // lines 变了要立刻重取；tick 是自动刷新用来触发同一段逻辑的。
+      // lines 或语言变了要立刻重取；tick 是自动刷新用来触发同一段逻辑的。
       useEffect(() => { void refresh() }, [refresh, tick])
 
       useEffect(() => {

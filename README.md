@@ -153,6 +153,8 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 - 可选显示最近 100 / 200 / 500 / 1000 行，默认 200
 - **最新的在最上面**：按时间倒序渲染，刚装了什么不用滚到底
 - 时间只到「月-日 时:分:秒」并等宽对齐，省下的宽度留给正文
+- **正文跟着「显示语言」走**：文件里存的是事件码和参数，不是成品句子，所以在中文与
+  English 之间切换后，连历史行都会跟着变；0.6.1 之前写下的旧行是句子，原样保留
 - 打开「自动刷新」后每 5 秒拉一次，正在排查时开着；关掉就完全不动
 - 读之前会先把待写队列刷下去，所以刚点完检查，那几行马上就在里面
 - 时间戳按本地时区显示，文件超过 1MB 轮转给一句提示，另附总行数
@@ -398,6 +400,10 @@ live in `~/.dsh/aupdate-settings.json`.
 
 The page renders the log newest first, so whatever just happened is at the top of the
 box instead of at the bottom of a scroll.
+
+Log lines are stored as an event code plus its arguments, not as finished sentences, so
+switching **Display language** re-renders history too. Lines written before 0.6.2 are
+sentences and stay exactly as they were.
 
 You can read this file straight from the settings page (see above). Point it
 elsewhere with `DSH_AUTO_UPDATE_LOG`.
