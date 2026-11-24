@@ -936,6 +936,23 @@ window.__ModuleLoader__.load({
                   : T.upToDate),
                 h('span', null, last.reason || last.status || ''),
               ),
+          // 只报「4 个可更新」不够：要看得出是哪几个、从哪版到哪版。
+          // 列表封高度、内部滚动，30 个包也不会把这张卡拉成一屏多。
+          (() => {
+            const rows = (Array.isArray(last?.updates) ? last.updates : [])
+              .map((item) => describeUpdate(item))
+              .filter((row) => row !== null)
+            if (rows.length === 0) return null
+            return h('div', { style: S.scrollList },
+              rows.map((row, index) => h('div', {
+                key: row.name + ':' + index,
+                style: { display: 'flex', alignItems: 'baseline', gap: '8px' },
+              },
+                h('span', { style: S.pkgName, title: row.name }, row.name),
+                row.versions === '' ? null : h('span', { style: S.pkgVer }, row.versions),
+              )),
+            )
+          })(),
           runHint ? h('span', { style: S.status }, runHint) : null,
         ),
         // 更新记录：谁、从哪到哪、什么时候、成没成，以及回滚入口。
@@ -1100,40 +1117,85 @@ window.__ModuleLoader__.load({
 
     let toastOpen = false
 
+    /**
+     * 把一条「可更新」记录归一成 { name, versions }。
+     *
+     * 后端 0.6.8 起存 { name, from, to }；更早的版本存的是成品句子
+     * 「名字 1.0 -> 1.1」。两种都要能显示——旧数据不该因为升级就变成
+     * undefined。之前正是只按对象读，句子条目全是 undefined ? → ?。
+     */
+    function describeUpdate(item) {
+      if (typeof item === 'string') {
+        const text = item.trim()
+        if (text === '') return null
+        const match = /^(.*) (\S+) -> (\S+)$/u.exec(text)
+        if (match === null) return { name: text, versions: '' }
+        return { name: match[1], versions: match[2] + ' → ' + match[3] }
+      }
+      if (item === null || typeof item !== 'object') return null
+      const name = typeof item.name === 'string' ? item.name : ''
+      if (name === '') return null
+      const from = typeof item.from === 'string' && item.from !== '' ? item.from : '?'
+      const to = typeof item.to === 'string' && item.to !== '' ? item.to : '?'
+      return { name, versions: from + ' → ' + to }
+    }
+
+    function updateSignature(updates) {
+      return (Array.isArray(updates) ? updates : [])
+        .map((item) => describeUpdate(item))
+        .filter((row) => row !== null)
+        .map((row) => row.name + '@' + row.versions)
+        .sort()
+        .join('|')
+    }
+
     function showUpdateToast(updates) {
       if (toastOpen) return
       const doc = typeof document === 'undefined' ? null : document
       if (doc === null || doc.body === null) return
+      const rows = (Array.isArray(updates) ? updates : []).map((item) => describeUpdate(item)).filter((row) => row !== null)
+      if (rows.length === 0) return
       toastOpen = true
       const box = doc.createElement('div')
       box.setAttribute('data-dsh-aupdate', 'toast')
       box.style.cssText = [
         'position:fixed', 'right:16px', 'bottom:16px', 'z-index:2147483000',
-        'max-width:340px', 'padding:12px 14px', 'border-radius:10px',
+        'width:320px', 'max-width:calc(100vw - 32px)', 'padding:12px 14px', 'border-radius:10px',
         'background:rgba(28,28,30,0.97)', 'color:#f4f4f5',
         'box-shadow:0 8px 28px rgba(0,0,0,0.38)', 'border:1px solid rgba(255,255,255,0.14)',
         'font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif',
-        'display:flex', 'flex-direction:column', 'gap:8px',
+        'display:flex', 'flex-direction:column', 'gap:9px',
       ].join(';')
 
       const title = doc.createElement('div')
-      title.textContent = T.toastTitle.replace('{n}', String(updates.length))
-      title.style.cssText = 'font-weight:600'
+      title.textContent = T.toastTitle.replace('{n}', String(rows.length))
+      title.style.cssText = 'font-weight:600;display:flex;align-items:center;gap:6px'
       box.appendChild(title)
 
       const list = doc.createElement('div')
-      list.style.cssText = 'display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto'
-      for (const item of updates.slice(0, 8)) {
-        const row = doc.createElement('div')
-        row.textContent = item.name + '  ' + (item.current || '?') + ' → ' + (item.target || '?')
-        row.style.cssText = 'font-size:12px;opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
-        list.appendChild(row)
+      // 超过 6 条就在框内滚动：提醒不该占掉半屏。
+      list.style.cssText = 'display:flex;flex-direction:column;gap:2px;max-height:190px;overflow:auto;margin:0 -4px'
+      for (const row of rows.slice(0, 12)) {
+        const line = doc.createElement('div')
+        line.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:2px 4px;border-radius:4px;background:rgba(255,255,255,0.05)'
+        const nameEl = doc.createElement('span')
+        nameEl.textContent = row.name
+        // 包名可能很长（@scope/name），压缩它而不是压缩版本。
+        nameEl.style.cssText = 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+        line.appendChild(nameEl)
+        if (row.versions !== '') {
+          const verEl = doc.createElement('span')
+          verEl.textContent = row.versions
+          verEl.style.cssText = 'flex:0 0 auto;font-size:11.5px;opacity:0.72;font-variant-numeric:tabular-nums'
+          line.appendChild(verEl)
+        }
+        list.appendChild(line)
       }
       box.appendChild(list)
 
-      if (updates.length > 8) {
+      if (rows.length > 12) {
         const more = doc.createElement('div')
-        more.textContent = T.toastMore.replace('{n}', String(updates.length - 8))
+        more.textContent = T.toastMore.replace('{n}', String(rows.length - 12))
         more.style.cssText = 'font-size:11.5px;opacity:0.6'
         box.appendChild(more)
       }
@@ -1163,7 +1225,8 @@ window.__ModuleLoader__.load({
           if (state?.settings?.notify !== false) {
             const updates = Array.isArray(state?.lastRun?.updates) ? state.lastRun.updates : []
             if (updates.length > 0) {
-              const sig = updates.map((item) => item.name + '@' + (item.target || '')).sort().join('|')
+              // 签名算的是「包名+版本变化」，旧格式也能算出来，不会重复弹。
+              const sig = updateSignature(updates)
               if (sig !== notifiedMark()) {
                 markNotified(sig)
                 showUpdateToast(updates)

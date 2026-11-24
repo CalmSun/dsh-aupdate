@@ -784,11 +784,38 @@ function readLastRun() {
   if (raw === null || typeof raw !== 'object') return null
   if (typeof raw.at !== 'string' || raw.at === '') return null
   const textList = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [])
+  /**
+   * 待更新清单。
+   *
+   * 0.6.7 及更早把这一项存成「名字 1.0 -> 1.1」的句子，界面只能整行照搬；
+   * 现在存 { name, from, to }，提醒和设置页才能把包名和版本分开排版。
+   * 旧数据在这里解析回来，不需要用户清文件。
+   */
+  const updateList = (value) => {
+    if (!Array.isArray(value)) return []
+    const out = []
+    for (const item of value) {
+      if (item !== null && typeof item === 'object') {
+        if (typeof item.name !== 'string' || item.name === '') continue
+        out.push({
+          name: item.name,
+          from: typeof item.from === 'string' ? item.from : '',
+          to: typeof item.to === 'string' ? item.to : '',
+        })
+        continue
+      }
+      if (typeof item !== 'string' || item === '') continue
+      const match = /^(.*) (\S+) -> (\S+)$/u.exec(item)
+      if (match === null) out.push({ name: item, from: '', to: '' })
+      else out.push({ name: match[1], from: match[2], to: match[3] })
+    }
+    return out
+  }
   return {
     status: typeof raw.status === 'string' ? raw.status : 'unknown',
     at: raw.at,
     checked: Number.isFinite(raw.checked) ? raw.checked : 0,
-    updates: textList(raw.updates),
+    updates: updateList(raw.updates),
     installed: textList(raw.installed),
     reload: typeof raw.reload === 'string' ? raw.reload : 'none',
     // 0.6.2 及更早存的是句子；0.6.3 起是 { code, args }，两种都要能读。
@@ -1783,7 +1810,8 @@ async function runCycle(mode, ctxRef) {
       status: report.status,
       at: report.finishedAt,
       checked: report.checked,
-      updates: report.updates.map((item) => item.name + ' ' + (item.current ?? '?') + ' -> ' + item.target),
+      // 结构化存：界面要分开排「包名」和「版本」，句子做不到。
+      updates: report.updates.map((item) => ({ name: item.name, from: item.current ?? '', to: item.target })),
       installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' !failed')),
       reload: report.reload?.status ?? 'none',
       reason: report.reason,

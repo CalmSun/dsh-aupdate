@@ -190,6 +190,10 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 发现可更新版本时，界面右下角浮一条提醒，列出插件名和「当前 → 新」版本；超过 8 条
 时余下给一句「还有 N 个」，15 秒后自动消失。
 
+提醒逐条列出**包名**和「当前版本 → 新版本」，包名过长时省略包名那一侧、不动版本；
+超过 6 条在框内滚动。设置页的「上一次」卡片也会列出同一份清单，不用只靠一句
+「4 个可更新」猜是哪几个。
+
 同一批更新只提醒一次：这批更新的签名记在 `localStorage` 里，刷新页面不会重复弹。
 关掉「发现更新时提醒我」就完全不弹，日志和设置页照常记录——提醒只是别让它装完你
 还不知道，不是唯一的告知渠道。
@@ -410,7 +414,9 @@ in the same language. Wording only — it changes no update behaviour.
 
 When a check finds updates, a notice appears in the bottom-right corner listing each
 plugin and its current → new version; past eight it adds "and N more", and it closes
-itself after 15 seconds. Each batch is announced once — the signature is kept in
+itself after 15 seconds. Long package names are truncated on the name side so the
+versions stay visible, and past six entries the list scrolls. The Last run card on the
+settings page lists the same plugins and version pairs. Each batch is announced once — the signature is kept in
 `localStorage` — and turning "Tell me when updates are found" off silences it entirely
 while the log and settings page keep recording.
 
