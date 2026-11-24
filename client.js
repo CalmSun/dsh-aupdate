@@ -631,10 +631,33 @@ window.__ModuleLoader__.load({
         } catch {
           setPhase('error')
         }
-        // LANG 进依赖：切换显示语言后要重新取一次，原因文本才是新语言的。
-      }, [LANG])
+        // 这里故意不依赖 LANG。曾经把 LANG 放进依赖，结果是：切到 English 时 load 重跑，
+        // 而服务端此刻还存着旧值 auto，于是 applyLang('auto') 把它改回跟随系统、
+        // setDraft 又把下拉重置——用户看到的就是「选了 English 自己跳回去」。
+      }, [])
 
       useEffect(() => { void load() }, [load])
+
+      /**
+       * 语言是显示偏好，和别的设置不一样：它切换后立刻生效，也必须立刻落盘。
+       *
+       * 三个理由：
+       * - 不落盘的话，用户选了 English 但没点保存，下次打开页面又回到「跟随系统」；
+       * - 只提交 lang 一个键，不会顺手把用户还没想好的其他改动一起存掉；
+       * - 一次请求既换文案又换服务端渲染的原因文本，不用再单独取一次 state，
+       *   也就没有「取回来的旧 lang 把选择覆盖掉」这种竞态。
+       */
+      const persistLang = useCallback(async (value) => {
+        try {
+          const next = await saveState({ lang: value })
+          applyLang(next?.settings?.lang)
+          setState(next)
+          // 草稿只更新 lang：其他输入框里没保存的内容不能被动过。
+          setDraft((prev) => (prev === null ? next.settings : { ...prev, lang: next.settings.lang }))
+        } catch {
+          setSaveHint(T.failed)
+        }
+      }, [])
 
       const patch = useCallback((key, value) => {
         setDraft((prev) => (prev === null ? prev : { ...prev, [key]: value }))
@@ -762,7 +785,12 @@ window.__ModuleLoader__.load({
             hint: T.languageHint,
             value: draft.lang ?? 'auto',
             // 先切文案再落盘：切换要立刻看得见，不能等保存往返。
-            onChange: (v) => { patch('lang', v); applyLang(v) },
+            // 顺序很重要：applyLang 换完 LANG，后面的取数才会带新语言。
+            onChange: (v) => {
+              patch('lang', v)
+              applyLang(v)
+              void persistLang(v)
+            },
             options: [
               { value: 'auto', label: T.langAuto },
               { value: 'zh', label: T.langZh },

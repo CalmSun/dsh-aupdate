@@ -143,8 +143,9 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 
 ### 显示语言
 
-设置页顶部有「显示语言」：跟随系统 / 中文 / English。切换立即生效，不用等保存往返；
-选择会存进 `~/.dsh/aupdate-settings.json`（键 `lang`），换个浏览器或换台机器打开设置页
+设置页顶部有「显示语言」：跟随系统 / 中文 / English。切换后**立即生效并立即保存**——
+它属于显示偏好，不该要求用户再点一次保存，也不该顺带保存其他没改完的设置；只提交
+`lang` 一个键。选择存进 `~/.dsh/aupdate-settings.json`，换个浏览器或换台机器打开设置页
 还是同一个语言。只影响文案，不改插件的更新行为。
 
 整页最下面是**运行日志**卡片，直接看插件最近写了什么，不用再去翻文件。日志正文用中文写，
@@ -370,9 +371,11 @@ like nothing had happened.
 ### Display language
 
 The page offers **Display language**: follow the system, 中文, or English. The switch
-applies immediately without a save round-trip, and the choice is stored in
-`~/.dsh/aupdate-settings.json` (key `lang`), so another browser or machine opens the page
-in the same language. Wording only — it changes no update behaviour.
+applies and saves immediately — it is a display preference, so it should not need a
+second Save click, and it must not persist whatever else you were still editing; only the
+`lang` key is submitted. The choice is stored in `~/.dsh/aupdate-settings.json`, so
+another browser or machine opens the page in the same language. Wording only — it changes
+no update behaviour.
 
 ### Update notices
 
