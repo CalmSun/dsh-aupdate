@@ -832,14 +832,12 @@ window.__ModuleLoader__.load({
           h(SwitchRow, { label: T.allowMajor, hint: T.allowMajorHint, value: draft.allowMajor, onChange: (v) => patch('allowMajor', v) }),
           h(SwitchRow, { label: T.allowPrerelease, hint: T.allowPrereleaseHint, value: draft.allowPrerelease, onChange: (v) => patch('allowPrerelease', v) }),
         ),
-        h('div', { style: S.actions },
-          h('button', { type: 'button', style: S.btn, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
-          // 没有保存按钮：改动自己在 350ms 后落盘，这里只报它落没落成。
-          saveHint ? h('span', { style: S.status }, saveHint) : null,
-          runHint ? h('span', { style: S.status }, runHint) : null,
-        ),
         h('div', { style: S.card },
-          h('span', { style: S.label }, T.lastRun),
+          // 按钮和它动作的对象放在一起：读「上一次」的人最想做的事就是再跑一次。
+          h('div', { style: S.row },
+            h('span', { style: S.label }, T.lastRun),
+            h('button', { type: 'button', style: S.btn, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
+          ),
           last === null || last === undefined
             ? h('span', { style: S.status }, T.never)
             : h('div', { style: S.meta },
@@ -850,6 +848,7 @@ window.__ModuleLoader__.load({
                   : T.upToDate),
                 h('span', null, last.reason || last.status || ''),
               ),
+          runHint ? h('span', { style: S.status }, runHint) : null,
         ),
         // 更新记录：谁、从哪到哪、什么时候、成没成，以及回滚入口。
         h('div', { style: S.card },
@@ -880,6 +879,8 @@ window.__ModuleLoader__.load({
           rollHint ? h('span', { style: S.status }, rollHint) : null,
         ),
         h(LogCard, null),
+        // 没有保存按钮：改动自己在 350ms 后落盘，这里只报它落没落成。
+        saveHint ? h('span', { style: S.status }, saveHint) : null,
         h('span', { style: S.hint }, T.scope),
       )
     }
