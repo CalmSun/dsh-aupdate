@@ -445,8 +445,8 @@ The page renders the log newest first, so whatever just happened is at the top o
 box instead of at the bottom of a scroll. During installation it writes "Installing N/M:
 <name>" for each package and, past two minutes on any one package, an explicit slow-install
 notice — pnpm buffers network warnings until the command ends, so there needs to be an
-anchor in the meantime. The Last run card polls /state every two seconds while a cycle is
-active and shows the same progress live.
+anchor in the meantime. The settings page polls /state every three seconds while it is open, so progress
+from an automatically scheduled cycle shows up too — not only one started by the button.
 
 Log lines are stored as an event code plus its arguments, not as finished sentences, so
 switching **Display language** re-renders history too. Lines written before 0.6.2 are

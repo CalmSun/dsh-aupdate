@@ -680,6 +680,25 @@ window.__ModuleLoader__.load({
 
       useEffect(() => { void load() }, [load])
 
+      // 进度轮询要常驻：更新多数是定时器自动触发的，若只在点「立刻检查」时轮询，
+      // 自动跑的那一轮界面上什么也看不到——上次就是这个原因以为进度功能没生效。
+      useEffect(() => {
+        let alive = true
+        const tick = async () => {
+          try {
+            const next = await getState(LANG)
+            if (alive) {
+              setProgress(next?.progress ?? null)
+              // 别人（定时器 / 另一个窗口）触发的轮次，也把 running 点亮。
+              if (next?.progress) setRunning(true)
+            }
+          } catch {}
+        }
+        void tick()
+        const timer = setInterval(() => { void tick() }, 3000)
+        return () => { alive = false; clearInterval(timer) }
+      }, [LANG])
+
       /**
        * 立即保存。
        *
@@ -736,15 +755,15 @@ window.__ModuleLoader__.load({
 
       /** 把后端进度翻成一行中文/英文；没进度就退回普通「正在检查」。 */
       const runningText = (() => {
-        if (!running) return ''
-        if (progress?.phase === 'installing' && progress.total > 0) {
+        if (!progress) return ''
+        if (progress.phase === 'installing' && progress.total > 0) {
           return T.progressInstall
             .replace('{n}', String(progress.index))
             .replace('{m}', String(progress.total))
             .replace('{name}', String(progress.name || ''))
         }
-        if (progress?.phase === 'applying') return T.progressApply
-        if (progress?.phase === 'checking') return T.progressCheck
+        if (progress.phase === 'applying') return T.progressApply
+        if (progress.phase === 'checking') return T.progressCheck
         return T.running
       })()
 
@@ -752,19 +771,9 @@ window.__ModuleLoader__.load({
         if (running) return
         setRunning(true)
         setRunHint(T.running)
-        setProgress(null)
         try {
-          // 点完立刻先读一次进度（后端可能已经在跑），之后每 2 秒跟一次。
-          const poll = async () => {
-            try {
-              setProgress((await getState(LANG))?.progress ?? null)
-            } catch {}
-          }
-          void poll()
-          const timer = setInterval(() => { void poll() }, 2000)
-          const result = await (async () => {
-            try { return await runNow('update') } finally { clearInterval(timer) }
-          })()
+          // 进度由上面的常驻轮询统一负责，这里只发请求。
+          const result = await runNow('update')
           if (result?.started === false) {
             setRunHint(result.reason || T.runFailed)
           } else {
@@ -780,7 +789,7 @@ window.__ModuleLoader__.load({
           setRunHint(T.runFailed)
         } finally {
           setRunning(false)
-          setProgress(null)
+          // 不在这里清 progress：常驻轮询会在后端清掉后同步，手动作废会和它打架。
         }
       }, [running])
 
@@ -961,7 +970,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', style: S.btn, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
           ),
           // 进度单独占一行：安装要几分钟甚至更久，这里明确告诉用户在装第几个。
-          running && progress
+          progress
             ? h('span', { style: { ...S.status, color: '#4c9aff', fontWeight: 500 } }, runningText)
             : null,
           last === null || last === undefined
