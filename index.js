@@ -32,7 +32,10 @@ const SESSION_IDLE_MINUTES = 2
 /** 跨进程的安装锁：同一 profile 同时跑两个 pnpm 会抢锁失败。 */
 const LOCK_STALE_MS = 30 * 60 * 1000
 
-let lastRun = null
+// 上一次运行结果从磁盘恢复。原来是纯内存的，DSH 一重启就没了：设置页明明刚装过
+// 东西，却显示「还没跑过」——那是真的没记住，不是没跑。注意这是在模块加载期调用，
+// 所以只能依赖函数声明（readLastRun/readJson 都提升），不能依赖下面的 const。
+let lastRun = readLastRun()
 let running = null
 
 function oneLine(value, limit = 2000) {
@@ -86,6 +89,31 @@ function flushLog() {
   } catch {
     // 落盘失败就算了，绝不能把日志问题抛进更新流程。
   }
+}
+
+/** 日志里的状态词翻译成人话——面板是给人看的，不留英文状态码。 */
+const STATUS_TEXT = { done: '完成', blocked: '已让开', failed: '失败', skipped: '已跳过', none: '无', ok: '成功' }
+
+function statusText(value) {
+  return STATUS_TEXT[String(value ?? '')] ?? String(value ?? '')
+}
+
+/** 设置页提交的键名，日志里不该出现 enabled,autoApply 这种字面量。 */
+const FIELD_LABELS = {
+  enabled: '定时检查', autoApply: '自动安装', hotReload: '就地生效', checkOnStart: '启动先查',
+  idleOnly: '忙时不动手', notify: '更新提醒', intervalMinutes: '检查间隔',
+  firstDelayMinutes: '首次延迟', exclude: '不更新的包', allowMajor: '跨大版本',
+  allowPrerelease: '预发布', scheduleMode: '调度方式', dailyAt: '每天时刻',
+  everyHours: '每几小时', everyDays: '每几天', suppressHours: '失败抑制',
+  maxPerCycle: '单轮上限', sessionIdleMinutes: '会话静默',
+}
+
+function fieldLabel(key) {
+  return FIELD_LABELS[key] ?? String(key)
+}
+
+function yesNo(value) {
+  return value === true ? '开' : '关'
 }
 
 function writeLog(message) {
@@ -221,7 +249,7 @@ function settingsPath() {
 const OVERRIDEABLE = [
   'enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'notify',
   'intervalMinutes', 'firstDelayMinutes', 'exclude',
-  'allow', 'allowMajor', 'allowPrerelease',
+  'allowMajor', 'allowPrerelease',
   // 调度：四种节奏 + 失败抑制时长。这些键不写进 Config schema，
   // 只活在覆盖层里——Config 的字段类型是宿主校验的，加错一个类型
   // 会在加载期直接抛错，而覆盖层是我们自己的文件，改坏了只影响这一项。
@@ -278,7 +306,7 @@ function writeOverrides(patch) {
   for (const key of OVERRIDEABLE) {
     if (patch === null || typeof patch !== 'object' || patch[key] === undefined) continue
     const raw = patch[key]
-    if (key === 'exclude' || key === 'allow') {
+    if (key === 'exclude') {
       next[key] = stringList(raw)
       continue
     }
@@ -379,7 +407,6 @@ function settingsOf(config) {
     intervalMinutes: numberSetting(config, 'intervalMinutes', 1440, 10, 10080),
     firstDelayMinutes: numberSetting(config, 'firstDelayMinutes', 5, 0, 1440),
     exclude: stringList(config?.exclude),
-    allow: stringList(config?.allow),
     // 默认允许跨大版本：这些都是 0.x 插件，按 semver 卡大版本等于几乎不更新。
     allowMajor: booleanSetting(config, 'allowMajor', true),
     // 默认不装预发布。注意：走 next 标签的包（@deepseek-ai/dsh-*）是显式选择，
@@ -413,7 +440,6 @@ const FIELDS = {
   intervalMinutes: { type: 'number', meta: { default: 1440, description: '检查间隔（分钟）' } },
   firstDelayMinutes: { type: 'number', meta: { default: 5, description: '启动后多久开始第一次' } },
   exclude: { type: 'array', meta: { default: [], description: '不要自动更新的包' } },
-  allow: { type: 'array', meta: { default: [], description: '只更新这些包（留空表示全部）' } },
   allowMajor: { type: 'boolean', meta: { default: true, description: '允许跨大版本更新' } },
   allowPrerelease: { type: 'boolean', meta: { default: false, description: '允许安装预发布版本' } },
 }
@@ -421,7 +447,7 @@ const FIELDS = {
 const DICT = {
   enabled: 1, autoApply: 2, hotReload: 3, checkOnStart: 4, idleOnly: 5,
   intervalMinutes: 6, firstDelayMinutes: 7, exclude: 8,
-  allow: 11, allowMajor: 12, allowPrerelease: 13,
+  allowMajor: 12, allowPrerelease: 13,
 }
 
 export const Config = {
@@ -435,7 +461,6 @@ export const Config = {
     6: FIELDS.intervalMinutes,
     7: FIELDS.firstDelayMinutes,
     8: FIELDS.exclude,
-    11: FIELDS.allow,
     12: FIELDS.allowMajor,
     13: FIELDS.allowPrerelease,
     10: { type: 'object', meta: { default: {} }, dict: DICT },
@@ -467,6 +492,52 @@ const HISTORY_MAX = 200
 
 function historyPath() {
   return join(dirname(settingsPath()), 'aupdate-history.json')
+}
+
+/**
+ * 上一次运行结果落盘。
+ *
+ * 「上一次」这张卡是设置页最有用的东西——它告诉你最近一轮什么时候跑、查了多少个、
+ * 装成了几个。但它是纯内存状态，DSH 一重启就归零，页面显示「还没跑过」，而磁盘上
+ * 明明有刚装好的包。所以照历史表的做法落一份在 ~/.dsh 下。
+ *
+ * 读的时候按字段逐个校验：这个文件可能是别的版本写的，缺字段就当默认值，
+ * 绝不因为一个坏文件让插件加载失败。
+ */
+function lastRunPath() {
+  return join(dirname(settingsPath()), 'aupdate-lastrun.json')
+}
+
+function readLastRun() {
+  let raw = null
+  try {
+    raw = readJson(lastRunPath())
+  } catch {
+    return null
+  }
+  if (raw === null || typeof raw !== 'object') return null
+  if (typeof raw.at !== 'string' || raw.at === '') return null
+  const textList = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [])
+  return {
+    status: typeof raw.status === 'string' ? raw.status : 'unknown',
+    at: raw.at,
+    checked: Number.isFinite(raw.checked) ? raw.checked : 0,
+    updates: textList(raw.updates),
+    installed: textList(raw.installed),
+    reload: typeof raw.reload === 'string' ? raw.reload : 'none',
+    reason: typeof raw.reason === 'string' ? raw.reason : '',
+    snapshot: typeof raw.snapshot === 'string' ? raw.snapshot : '',
+  }
+}
+
+function saveLastRun(value) {
+  try {
+    const file = lastRunPath()
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8')
+  } catch {
+    // 记不住也不要紧，最坏的结果就是下次重启又显示「还没跑过」，不该影响更新本身。
+  }
 }
 
 // 和失败表一样按 mtime+size 判新旧：这个文件也在 ~/.dsh 下跨 profile 共用，
@@ -699,19 +770,16 @@ function readJson(file) {
 }
 
 /** 要被检查的依赖：dependencies 里非 link/file 的那些。 */
-function dependencyList(profileDir, exclude, allow = []) {
+function dependencyList(profileDir, exclude) {
   const manifest = readJson(join(profileDir, 'package.json'))
   const deps = manifest?.dependencies
   if (deps === null || typeof deps !== 'object') return []
   const skip = new Set(exclude)
-  // 白名单非空时就是「只更新这些」；空数组表示不启用白名单。
-  const only = new Set(allow)
   const rows = []
   for (const [pkgName, spec] of Object.entries(deps)) {
     if (typeof spec !== 'string') continue
     if (/^(link|file|workspace|portal):/iu.test(spec)) continue
     if (!NPM_NAME_RE.test(pkgName) || skip.has(pkgName)) continue
-    if (only.size > 0 && !only.has(pkgName)) continue
     rows.push({ name: pkgName, spec })
   }
   return rows
@@ -720,37 +788,26 @@ function dependencyList(profileDir, exclude, allow = []) {
 /**
  * 设置页的勾选清单。
  *
- * dependencyList 会按 exclude/allow 过滤，而那正是勾选框要展示的东西——被排除的包
+ * dependencyList 会按 exclude 过滤，而那正是勾选框要展示的东西——被排除的包
  * 也必须出现在列表里，否则一旦勾上就再也取消不掉。所以这里不过滤，只给每一项
- * 标注「当前是否被排除 / 是否在白名单里」，让页面自己决定勾没勾。
- *
- * 白名单里还可能留着已经卸载的包名（改过 dependencies 之后就会这样）。它们没有
- * 对应的勾选项，但不能悄悄丢掉，否则用户再也没有入口删掉这条规则。
+ * 标注「当前是否被排除」，让页面自己决定勾没勾。
  */
 function packageChoices(profileDir, settings) {
   const manifest = readJson(join(profileDir, 'package.json'))
   const deps = manifest?.dependencies
   if (deps === null || typeof deps !== 'object') return []
   const skip = new Set(settings.exclude)
-  const only = new Set(settings.allow)
-  const known = new Set()
   const rows = []
   for (const [name, spec] of Object.entries(deps)) {
     if (typeof spec !== 'string') continue
     if (/^(link|file|workspace|portal):/iu.test(spec)) continue
     if (!NPM_NAME_RE.test(name)) continue
-    known.add(name)
     const version = installedVersion(profileDir, name, spec)
     rows.push({
       name,
       version: typeof version === 'string' ? version : '',
       excluded: skip.has(name),
-      allowed: only.has(name),
     })
-  }
-  for (const name of only) {
-    if (known.has(name)) continue
-    rows.push({ name, version: '', excluded: skip.has(name), allowed: true })
   }
   // 不能直接用 localeCompare：它的结果跟着系统区域变，同一个 profile 在不同机器上
   // 排出来的顺序会不一样，页面顺序跳来跳去会让人以为列表变了。
@@ -1059,7 +1116,7 @@ function snapshotProfile(profileDir, now) {
     return { dir, files: saved }
   } catch (error) {
     // 留底失败不该拦住更新本身：它只是事后证据，不是前置条件。
-    writeLog('snapshot failed: ' + oneLine(error?.message ?? error, 200))
+    writeLog('留快照失败：' + oneLine(error?.message ?? error, 200))
     return null
   }
 }
@@ -1118,7 +1175,7 @@ function takeProfileLock(profileDir, now) {
   } catch {}
   try {
     writeFileSync(file, stamp + '\n', { encoding: 'utf8', flag: 'wx' })
-    writeLog('took over a stale install lock (' + ageMinutes + ' min old)')
+    writeLog('接管了一个已挂 ' + ageMinutes + ' 分钟的安装锁')
     return { ok: true, file }
   } catch (error) {
     return { ok: false, reason: '抢锁失败：' + oneLine(error?.message ?? error, 160) }
@@ -1240,7 +1297,7 @@ async function runCycle(mode, ctxRef) {
   try {
     const profileDir = profileDirOf(ctxRef.ctx)
     const profileName = basename(profileDir)
-    const deps = dependencyList(profileDir, settings.exclude, settings.allow)
+    const deps = dependencyList(profileDir, settings.exclude)
     report.checked = deps.length
     if (deps.length === 0) {
       report.reason = '这个 profile 里没有可检查的依赖'
@@ -1288,7 +1345,7 @@ async function runCycle(mode, ctxRef) {
         else report.skipped.push(answer)
       }
     }
-    writeLog('checked ' + report.checked + ' package(s), ' + report.updates.length + ' update(s) available')
+    writeLog('检查 ' + report.checked + ' 个插件，' + report.updates.length + ' 个可更新')
     if (report.updates.length === 0) {
       report.reason = '没有可更新的插件'
       return report
@@ -1298,7 +1355,7 @@ async function runCycle(mode, ctxRef) {
     const deferred = settings.maxPerCycle > 0 ? report.updates.length - settings.maxPerCycle : 0
     if (deferred > 0) {
       report.updates = report.updates.slice(0, settings.maxPerCycle)
-      writeLog('capped this cycle at ' + settings.maxPerCycle + ', ' + deferred + ' left for next round')
+      writeLog('本轮限量装 ' + settings.maxPerCycle + ' 个，剩下 ' + deferred + ' 个下一轮再装')
     }
     if (mode === 'check' || !settings.autoApply) {
       report.reason = '只查不装'
@@ -1313,7 +1370,7 @@ async function runCycle(mode, ctxRef) {
       if (why.length > 0) {
         report.status = 'blocked'
         report.reason = why.join('；') + '，这一轮不安装'
-        writeLog('apply skipped: ' + why.join('; '))
+        writeLog('跳过安装：' + why.join('；'))
         return report
       }
     }
@@ -1328,7 +1385,7 @@ async function runCycle(mode, ctxRef) {
     if (!lock.ok) {
       report.status = 'blocked'
       report.reason = lock.reason
-      writeLog('apply skipped: ' + lock.reason)
+      writeLog('跳过安装：' + lock.reason)
       return report
     }
     try {
@@ -1336,7 +1393,7 @@ async function runCycle(mode, ctxRef) {
       const snapshot = snapshotProfile(profileDir, new Date())
       if (snapshot !== null) {
         report.snapshot = snapshot.dir
-        writeLog('snapshot -> ' + snapshot.dir + ' (' + snapshot.files.join(',') + ')')
+        writeLog('已留快照 ' + snapshot.dir + '（' + snapshot.files.join('、') + '）')
       }
       return await applyUpdates(ctxRef, report, settings, runner, profileDir, profileName)
     } finally {
@@ -1345,7 +1402,7 @@ async function runCycle(mode, ctxRef) {
   } catch (error) {
     report.status = 'failed'
     report.reason = oneLine(error?.message ?? error, 400)
-    writeLog('cycle failed: ' + report.reason)
+    writeLog('本轮失败：' + report.reason)
     return report
   } finally {
     report.finishedAt = new Date().toISOString()
@@ -1359,6 +1416,7 @@ async function runCycle(mode, ctxRef) {
       reason: report.reason,
       snapshot: report.snapshot,
     }
+    saveLastRun(lastRun)
   }
 }
 
@@ -1373,7 +1431,7 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
     for (const update of ordered) {
       const outcome = await installOne(runner, profileName, profileDir, update.name, update.target)
       report.installed.push(outcome)
-      writeLog('install ' + update.name + '@' + update.target + ' -> ' + (outcome.ok ? 'ok' : 'failed: ' + outcome.detail))
+      writeLog('安装 ' + update.name + '@' + update.target + ' → ' + (outcome.ok ? '成功' : '失败：' + outcome.detail))
       if (outcome.ok) {
         clearFailure(update.name, update.target)
         appendHistory({
@@ -1410,7 +1468,7 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
       return report
     }
     report.reload = await hotApply(ctxRef.ctx, requiredBefore)
-    writeLog('hot apply -> ' + report.reload.status + (report.reload.reason ? ': ' + report.reload.reason : ''))
+    writeLog('就地生效 → ' + statusText(report.reload.status) + (report.reload.reason ? '：' + report.reload.reason : ''))
     report.reason = '已安装 ' + okCount + ' 个；' + (report.reload.reason ?? '')
     if (report.reload.status === 'failed') report.status = 'failed'
     else if (report.reload.status === 'blocked' || report.reload.status === 'restart') report.status = 'partial'
@@ -1473,7 +1531,7 @@ async function rollbackOne(ctxRef, entryName) {
   } finally {
     releaseProfileLock(lock)
   }
-  writeLog('rollback ' + row.name + ' ' + row.to + ' -> ' + row.from + ' -> ' + (outcome.ok ? 'ok' : 'failed: ' + outcome.detail))
+  writeLog('回滚 ' + row.name + ' ' + row.to + ' → ' + row.from + ' → ' + (outcome.ok ? '成功' : '失败：' + outcome.detail))
   if (!outcome.ok) return { ok: false, reason: outcome.detail }
   const next = rows.slice()
   next.unshift({
@@ -1557,14 +1615,14 @@ function registerTool(ctx, config) {
             skipped: report.skipped.map((item) => item.name + '：' + item.why),
           }
         } catch (error) {
-          writeLog('tool failed: ' + oneLine(error?.message ?? error, 300))
+          writeLog('工具调用失败：' + oneLine(error?.message ?? error, 300))
           return { status: 'failed', reason: '没能完成，插件状态需要核对', checked: 0, updates: [], installed: [], reload: 'none' }
         }
       },
     }), 'dsh-aupdate: plugin_updater')
     return true
   } catch (error) {
-    writeLog('cannot offer the tool: ' + oneLine(error?.message ?? error, 300))
+    writeLog('无法提供工具：' + oneLine(error?.message ?? error, 300))
     return false
   }
 }
@@ -1774,12 +1832,12 @@ function registerRoutes(scope, ctxRef) {
             sendJson(res, 500, { error: result.error })
             return
           }
-          writeLog('settings updated by page: ' + Object.keys(body).join(','))
+          writeLog('设置页改了：' + Object.keys(body).map(fieldLabel).join('、'))
           // 改完立刻按新设置重排，否则要等下一次触发才换节奏。
           try {
             if (typeof ctxRef.reschedule === 'function') ctxRef.reschedule()
           } catch (error) {
-            writeLog('reschedule failed: ' + oneLine(error?.message ?? error, 200))
+            writeLog('重排定时失败：' + oneLine(error?.message ?? error, 200))
           }
           sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef))
           return
@@ -1792,7 +1850,7 @@ function registerRoutes(scope, ctxRef) {
             return
           }
           const outcome = await rollbackOne(ctxRef, target)
-          writeLog('rollback request ' + target + ' -> ' + (outcome.ok ? 'ok' : 'failed: ' + outcome.reason))
+          writeLog('收到回滚请求 ' + target + ' → ' + (outcome.ok ? '成功' : '失败：' + outcome.reason))
           sendJson(res, outcome.ok ? 200 : 409, outcome)
           return
         }
@@ -1812,7 +1870,7 @@ function registerRoutes(scope, ctxRef) {
       }
       sendJson(res, 405, { error: 'method not allowed' })
     } catch (error) {
-      writeLog('route failed: ' + oneLine(error?.message ?? error, 300))
+      writeLog('接口处理出错：' + oneLine(error?.message ?? error, 300))
       try { sendJson(res, 500, { error: 'internal' }) } catch {}
     }
   }
@@ -1821,14 +1879,14 @@ function registerRoutes(scope, ctxRef) {
     const register = () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler })
     if (typeof effect === 'function') {
       effect.call(scope, register, 'dsh-aupdate: settings routes')
-      writeLog('settings route ready: ' + ROUTE_PREFIX)
+      writeLog('设置接口已就绪：' + ROUTE_PREFIX)
       return true
     }
     register()
-    writeLog('settings route ready (no effect scope): ' + ROUTE_PREFIX)
+    writeLog('设置接口已就绪（没有 effect 作用域）：' + ROUTE_PREFIX)
     return true
   } catch (error) {
-    writeLog('cannot register settings route: ' + oneLine(error?.message ?? error, 300))
+    writeLog('无法注册设置接口：' + oneLine(error?.message ?? error, 300))
     return false
   }
 }
@@ -1847,15 +1905,15 @@ export function apply(ctx, config) {
     try {
       const tools = serviceOf(scope, 'tools')
       if (tools === null || typeof tools.register !== 'function') {
-        writeLog('tool registered: false')
+        writeLog('工具注册失败')
         return
       }
       if (toolService === tools) return
       toolService = tools
       const ok = registerTool(scope, config)
-      writeLog('tool registered: ' + ok)
+      writeLog('工具注册：' + (ok ? '成功' : '失败'))
     } catch (error) {
-      writeLog('tool registration threw: ' + oneLine(error?.message ?? error, 300))
+      writeLog('注册工具时抛错：' + oneLine(error?.message ?? error, 300))
     }
   }
   // 路由和工具是同一类问题：apply 执行时 webServer 可能还没就绪，
@@ -1865,14 +1923,14 @@ export function apply(ctx, config) {
     try {
       const webServer = serviceOf(scope, 'webServer')
       if (webServer === null || typeof webServer.register !== 'function') {
-        writeLog('webServer unavailable: settings page will report it')
+        writeLog('没有 webServer 服务，设置页会显示不可用')
         return
       }
       if (routeService === webServer) return
       const ok = registerRoutes(scope, ctxRef)
       if (ok) routeService = webServer
     } catch (error) {
-      writeLog('route registration threw: ' + oneLine(error?.message ?? error, 300))
+      writeLog('注册设置接口时抛错：' + oneLine(error?.message ?? error, 300))
     }
   }
   const inject = propOf(ctx, 'inject')
@@ -1886,10 +1944,10 @@ export function apply(ctx, config) {
         offerRoutes(scope)
       })
       Promise.resolve(fiber).catch((error) => {
-        writeLog('tool scope ended: ' + oneLine(error?.message ?? error, 300))
+        writeLog('工具作用域已结束：' + oneLine(error?.message ?? error, 300))
       })
     } catch (error) {
-      writeLog('cannot offer the tool: ' + oneLine(error?.message ?? error, 300))
+      writeLog('无法提供工具：' + oneLine(error?.message ?? error, 300))
       offerTool(ctx)
       offerRoutes(ctx)
     }
@@ -1902,9 +1960,9 @@ export function apply(ctx, config) {
     const go = async () => {
       try {
         const report = await beginningRun(mode, ctxRef)
-        if (report !== null) writeLog('cycle ' + mode + ' -> ' + report.status + ': ' + report.reason)
+        if (report !== null) writeLog('本轮' + (mode === 'check' ? '检查' : '更新') + ' → ' + statusText(report.status) + '：' + report.reason)
       } catch (error) {
-        writeLog('cycle threw: ' + oneLine(error?.message ?? error, 300))
+        writeLog('本轮抛错：' + oneLine(error?.message ?? error, 300))
       }
     }
     void go()
@@ -1939,7 +1997,7 @@ export function apply(ctx, config) {
     clearScheduled()
     const live = settingsOf(ctxRef.config)
     if (!live.enabled) {
-      writeLog('settings say disabled; scheduler parked')
+      writeLog('设置里已关闭自动更新，定时器待命')
       return
     }
     // 启动后第一次仍然只看 firstDelayMinutes，之后按当前调度模式算。
@@ -1973,7 +2031,7 @@ export function apply(ctx, config) {
 
   // 设置页要能读到运行状态并改设置，所以路由最后注册、且与 enabled 无关：
   // 关掉定时检查之后，用户仍然要能看到这一页并把它重新打开。
-  if (!settings.enabled) writeLog('disabled by config; scheduler parked, settings page still live')
+  if (!settings.enabled) writeLog('配置里已关闭自动更新，定时器待命，设置页仍然可用')
 
   const stop = () => {
     for (const off of timers.splice(0)) {
@@ -1989,7 +2047,7 @@ export function apply(ctx, config) {
     } catch {}
   }
 
-  writeLog('ready: every ' + settings.intervalMinutes + ' min, autoApply=' + settings.autoApply + ', hotReload=' + settings.hotReload)
+  writeLog('已就绪：每 ' + settings.intervalMinutes + ' 分钟检查一次，自动安装=' + yesNo(settings.autoApply) + '，就地生效=' + yesNo(settings.hotReload))
 }
 
 

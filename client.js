@@ -60,7 +60,6 @@ window.__ModuleLoader__.load({
         firstDelayHint: '分钟，0 表示立刻',
         exclude: '不自动更新的包',
         excludeHint: '每行一个包名',
-        allow: '只更新这些包',
         allowHint: '每行一个包名；留空表示全部包都参与',
         allowMajor: '允许跨大版本',
         allowMajorHint: '关闭后只在同一主版本内升级（0.x 插件多半会因此长期不动）',
@@ -88,8 +87,6 @@ window.__ModuleLoader__.load({
         notifyHint: '在界面右下角弹一条提醒，列出可更新的插件和「当前 → 新」版本；同一批更新只提醒一次',
         pkgsExclude: '不自动更新的包',
         pkgsExcludeHint: '勾上的插件永远不自动更新；一个都不勾表示全部参与自动更新',
-        pkgsAllow: '只更新这些包',
-        pkgsAllowHint: '勾上后只更新勾选的插件；一个都不勾表示不启用这条白名单',
         pkgsSearch: '搜索插件名',
         pkgsAll: '全选',
         pkgsNone: '清空',
@@ -163,7 +160,6 @@ window.__ModuleLoader__.load({
         firstDelayHint: 'minutes, 0 means immediately',
         exclude: 'Never auto-update',
         excludeHint: 'one package name per line',
-        allow: 'Only update these',
         allowHint: 'one package name per line; empty means every package',
         allowMajor: 'Allow major upgrades',
         allowMajorHint: 'Off keeps upgrades inside one major; 0.x plugins would rarely move',
@@ -191,8 +187,6 @@ window.__ModuleLoader__.load({
         notifyHint: 'Pops a notice in the bottom-right corner listing the plugins that can update and their current → new versions; each batch is announced once',
         pkgsExclude: 'Never auto-update',
         pkgsExcludeHint: 'Checked plugins are never updated automatically; nothing checked means everything takes part',
-        pkgsAllow: 'Only update these',
-        pkgsAllowHint: 'When anything is checked, only those plugins update; nothing checked disables this allow-list',
         pkgsSearch: 'Search plugin names',
         pkgsAll: 'All',
         pkgsNone: 'None',
@@ -254,6 +248,20 @@ window.__ModuleLoader__.load({
         return when.getFullYear() + '-' + pad(when.getMonth() + 1) + '-' + pad(when.getDate()) +
           ' ' + pad(when.getHours()) + ':' + pad(when.getMinutes()) + ':' + pad(when.getSeconds())
       }
+    }
+
+    /**
+     * 日志行的时间只到 月-日 时:分:秒。
+     *
+     * 整条「2026-11-24 09:14:13」占掉一行近四分之一宽度，而日志的重点是内容，
+     * 年份在同一个文件里几乎不可能变。缩成短格式后一行能放进更多正文。
+     */
+    function formatLogWhen(iso) {
+      const when = new Date(iso)
+      if (Number.isNaN(when.getTime())) return String(iso ?? '')
+      const pad = (n) => String(n).padStart(2, '0')
+      return pad(when.getMonth() + 1) + '-' + pad(when.getDate()) +
+        ' ' + pad(when.getHours()) + ':' + pad(when.getMinutes()) + ':' + pad(when.getSeconds())
     }
 
     /** 「上一次」的光看绝对时间不好判断新鲜度，补一句相对时间。 */
@@ -348,9 +356,11 @@ window.__ModuleLoader__.load({
       meta: { display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '12px', opacity: 0.7 },
       // 等宽 + 可滚动：日志要能对齐看时间戳，也不能把整页顶长。
       logBox: { margin: 0, padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.22)', background: 'rgba(128,128,128,0.06)', fontSize: '11.5px', lineHeight: 1.55, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', maxHeight: '260px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
-      logTime: { opacity: 0.5 },
+      logTime: { opacity: 0.5, flexShrink: 0, fontVariantNumeric: 'tabular-nums' },
       logText: {},
       // 勾选清单：包名可能很长（@scope/name），要能截断，版本靠右对齐。
+      // 更新记录可能上百条，不封高度会把整页顶到几屏之外，滚动条交还给这一栏。
+      scrollList: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto', paddingRight: '4px' },
       pkgList: { display: 'flex', flexDirection: 'column', gap: '1px', maxHeight: '240px', overflow: 'auto', border: '1px solid rgba(128,128,128,0.22)', borderRadius: '6px', padding: '4px' },
       pkgRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '2px 4px', borderRadius: '4px', cursor: 'pointer' },
       pkgName: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -573,9 +583,7 @@ window.__ModuleLoader__.load({
         for (const key of keys) {
           if (draft[key] !== state.settings[key]) return true
         }
-        for (const listKey of ['exclude', 'allow']) {
-          if (String((draft[listKey] || []).join('\n')) !== String((state.settings[listKey] || []).join('\n'))) return true
-        }
+        if (String((draft.exclude || []).join('\n')) !== String((state.settings.exclude || []).join('\n'))) return true
         return false
       }, [state, draft])
 
@@ -594,7 +602,6 @@ window.__ModuleLoader__.load({
             intervalMinutes: draft.intervalMinutes,
             firstDelayMinutes: draft.firstDelayMinutes,
             exclude: draft.exclude,
-            allow: draft.allow,
             allowMajor: draft.allowMajor,
             allowPrerelease: draft.allowPrerelease,
             scheduleMode: draft.scheduleMode,
@@ -733,20 +740,11 @@ window.__ModuleLoader__.load({
             onChange: (list) => patch('exclude', list),
           }),
         ),
-        // 策略与范围：白名单 / 预发布 / 跨大版本，决定「什么算可以装」。
+        // 策略：预发布 / 跨大版本，决定「什么算可以装」。
         h('div', { style: S.card },
           h('span', { style: S.label }, T.policy),
           h(SwitchRow, { label: T.allowMajor, hint: T.allowMajorHint, value: draft.allowMajor, onChange: (v) => patch('allowMajor', v) }),
           h(SwitchRow, { label: T.allowPrerelease, hint: T.allowPrereleaseHint, value: draft.allowPrerelease, onChange: (v) => patch('allowPrerelease', v) }),
-          h('div', { style: S.labelBox },
-            h('span', { style: S.label }, T.pkgsAllow),
-            h('span', { style: S.hint }, T.pkgsAllowHint),
-          ),
-          h(PackagePicker, {
-            packages: state?.packages,
-            selected: draft.allow,
-            onChange: (list) => patch('allow', list),
-          }),
         ),
         h('div', { style: S.actions },
           h('button', { type: 'button', style: dirty ? S.btnPrimary : S.btn, disabled: !dirty || saving, onClick: () => void save() }, saving ? T.saving : T.save),
@@ -772,7 +770,7 @@ window.__ModuleLoader__.load({
           h('span', { style: S.label }, T.history),
           (state?.history?.length ?? 0) === 0
             ? h('span', { style: S.status }, T.historyEmpty)
-            : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+            : h('div', { style: S.scrollList },
                 state.history.map((row, index) => h('div', {
                   key: row.name + '@' + row.at + ':' + index,
                   style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' },
@@ -861,7 +859,7 @@ window.__ModuleLoader__.load({
               ? h('span', { style: S.status }, T.logsEmpty)
               : h('pre', { style: S.logBox, title: data?.path || '' },
                   rows.map((row, index) => h('div', { key: index },
-                    row.at ? h('span', { style: S.logTime }, formatWhen(row.at) + '  ') : null,
+                    row.at ? h('span', { style: S.logTime }, formatLogWhen(row.at) + '  ') : null,
                     h('span', { style: S.logText }, row.text),
                   )),
                 ),

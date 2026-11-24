@@ -55,8 +55,7 @@ https://github.com/CalmSun/dsh-aupdate
 
 | 设置 | 默认 | 说明 |
 |---|---|---|
-| `allow` | `[]` | 只更新这些包；留空表示全部 |
-| `exclude` | `[]` | 不更新的包，优先级高于 `allow` |
+| `exclude` | `[]` | 不更新的包；填了就一直不参与自动更新 |
 | `allowMajor` | `true` | 关掉后只在同一主版本内升级 |
 | `allowPrerelease` | `false` | 关掉后不装预发布；`next` 标签不受影响 |
 | `idleOnly` | `true` | 忙的时候不动手（见下节） |
@@ -86,6 +85,9 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 每次成功安装都会记一条：包名、从哪个版本、到哪个版本、时间。历史存在
 `~/.dsh/aupdate-history.json`，设置页里能直接看到，并对最近一次更新点「回滚」
 把旧版本装回去。回滚只针对本插件自己装上去的那一次。
+
+记录栏固定高度、在自己的框里滚动：堆到上百条也只是这一栏变长，不会把整页顶到几屏
+之外，按钮也不会被挤到看不见的地方。
 
 同一个包的 `from → to` 完全相同、且都不是回滚记录时只留最新一条：
 否则同一行失败记录会一轮一条堆满历史，真正要回的那个点反而找不到了。
@@ -124,19 +126,27 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 
 ### 勾选插件，而不是手写包名
 
-`exclude` / `allow` 原来要一行一个包名地敲。现在整页里是两张勾选清单，直接列出
-这个 profile 实际装着的插件和各自的已装版本：
+`exclude` 原来要一行一个包名地敲。现在整页里是一张勾选清单，直接列出这个 profile
+实际装着的插件和各自的已装版本：
 
 - **不自动更新的包**：勾上的永远不参与自动更新
-- **只更新这些包**：勾上后只更新勾中的；一个都不勾表示不启用这条白名单
-- 能按名字搜索，`/state` 里带着 `packages`（名字、版本、当前是否被排除/在白名单里）
+- 能按名字搜索，`/state` 里带着 `packages`（名字、版本、当前是否被排除）
 - 「全选 / 清空」只作用于当前筛选出来的行——搜完再点全选，意思是把搜到的都勾上
-- 白名单里留着已卸载的包名时照样列出来并标「未安装」，否则那条规则再也删不掉
+- 这个 profile 里装着的插件都会列出来，列表本身就是「能勾什么」的全部答案
 
-整页最下面是**运行日志**卡片，直接看插件最近写了什么，不用再去翻文件：
+### 「上一次」不会再被重启清空
+
+最近一轮的结果（时间、查了多少个、几个可更新、装成几个、失败原因）现在落在
+`~/.dsh/aupdate-lastrun.json`，DSH 重启后照旧显示。以前它是纯内存的，重启一次就回到
+「还没跑过」，看着像这一轮根本没跑过。读的时候逐字段校验，坏文件只会让这张卡缺席，
+不会让插件加载失败。
+
+整页最下面是**运行日志**卡片，直接看插件最近写了什么，不用再去翻文件。日志正文用中文写，
+一行一件事（检查了多少个、装哪个、为什么跳过），状态词也翻成人话；
 
 - 可选显示最近 100 / 200 / 500 / 1000 行，默认 200
 - **最新的在最上面**：按时间倒序渲染，刚装了什么不用滚到底
+- 时间只到「月-日 时:分:秒」并等宽对齐，省下的宽度留给正文
 - 打开「自动刷新」后每 5 秒拉一次，正在排查时开着；关掉就完全不动
 - 读之前会先把待写队列刷下去，所以刚点完检查，那几行马上就在里面
 - 时间戳按本地时区显示，文件超过 1MB 轮转给一句提示，另附总行数
@@ -260,8 +270,7 @@ A successful install clears the record.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `allow` | `[]` | Only update these packages; empty means all |
-| `exclude` | `[]` | Never update these; takes priority over `allow` |
+| `exclude` | `[]` | Never update these; whatever is listed stays out of auto-updates |
 | `allowMajor` | `true` | When off, stay within the same major version |
 | `allowPrerelease` | `false` | When off, skip prereleases; the `next` tag is unaffected |
 | `idleOnly` | `true` | Hold off while anything is busy (see below) |
@@ -323,6 +332,9 @@ the new version, and a timestamp, in `~/.dsh/aupdate-history.json`. The settings
 page lists them and can roll the most recent update back to its previous version.
 A rollback applies once: the same downgrade cannot be replayed.
 
+The list keeps a fixed height and scrolls inside its own box, so a hundred entries make
+that one card longer instead of pushing the whole page down.
+
 Repeated rows for the same package with an identical `from → to`, where neither is
 a rollback, collapse into the newest one. Otherwise a single failing version would
 pile up one row per cycle and bury the entry you actually want to return to.
@@ -334,12 +346,15 @@ The row in the plugins page shows a summary and a full page; saving re-schedules
 immediately without a restart. The same UI is also its own page under
 **Settings → Plugin updates**, so it is not buried in the plugins page.
 
-`exclude` and `allow` are checkbox lists of the plugins actually installed in this
-profile, with their installed versions, instead of two textareas you had to type
-package names into. Search narrows the list; Select all / Clear only touch the rows
-currently shown, so "search, then select all" means what you expect. A name left in the
-allow-list after its package was uninstalled still appears, labelled "not installed",
-because otherwise that rule could never be removed.
+`exclude` is a checkbox list of the plugins actually installed in this profile, with
+their installed versions, instead of a textarea you had to type package names into.
+Search narrows the list; Select all / Clear only touch the rows currently shown, so
+"search, then select all" means what you expect.
+
+The last run's outcome (when, how many checked, how many updatable, how many installed,
+why it failed) is persisted to `~/.dsh/aupdate-lastrun.json` and survives a restart. It
+used to live in memory only, so every restart reset the card to "never run" and looked
+like nothing had happened.
 
 ### Update notices
 
