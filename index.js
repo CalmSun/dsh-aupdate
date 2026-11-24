@@ -104,8 +104,16 @@ function flushLog() {
 
 /** 状态词。运行结果是数据（done/skipped/…），显示成哪种语言由读取侧决定。 */
 const LOG_STATUS = {
-  zh: { done: '完成', blocked: '已让开', failed: '失败', skipped: '已跳过', none: '无', ok: '成功' },
-  en: { done: 'done', blocked: 'held off', failed: 'failed', skipped: 'skipped', none: 'none', ok: 'ok' },
+  zh: {
+    done: '完成', blocked: '已让开', failed: '失败', skipped: '已跳过', none: '无', ok: '成功',
+    partial: '部分完成', busy: '正在跑', unavailable: '不可用', applying: '生效中',
+    restart: '需重启', cancelled: '已取消',
+  },
+  en: {
+    done: 'done', blocked: 'held off', failed: 'failed', skipped: 'skipped', none: 'none', ok: 'ok',
+    partial: 'partly done', busy: 'busy', unavailable: 'unavailable', applying: 'applying',
+    restart: 'restart needed', cancelled: 'cancelled',
+  },
 }
 
 /** 设置项在日志里的名字：enabled / autoApply 这种字面量不该出现在面板上。 */
@@ -187,6 +195,102 @@ function makeLogTemplates(lang) {
 
 const LOG_TEMPLATES = { zh: makeLogTemplates('zh'), en: makeLogTemplates('en') }
 
+/**
+ * 原因事件。
+ *
+ * 运行结果里的「为什么没装 / 为什么不动手」以前直接拼成中文句子：写进 lastRun、
+ * 拼进 report.reason、再喂给日志。语言一换，这些句子就是不动的中文，跟日志正文
+ * 对不上。所以原因也照日志的做法拆成 { code, args }，渲染时才决定语言。
+ *
+ * 自由文本（pnpm 的报错、锁持有者、宿主给的 restart 原因）仍然是字符串：
+ * 那些不是我们写的话，翻译不了，原样透出比乱翻更诚实。
+ */
+function makeReasonTemplates(lang) {
+  const zh = lang !== 'en'
+  const sep = zh ? '；' : '; '
+  const ageText = (age) => {
+    if (typeof age !== 'number' || !Number.isFinite(age)) return zh ? '刚才' : 'just now'
+    return age < 1 ? (zh ? '不到 1' : 'under 1') : String(Math.round(age))
+  }
+  return {
+    raw: (msg) => String(msg ?? ''),
+    uncomparable: () => (zh ? '版本号无法比较' : 'Versions are not comparable'),
+    latest: () => (zh ? '已经是最新' : 'Already up to date'),
+    prerelease: () => (zh ? '是预发布版本，未允许' : 'Prerelease, not allowed'),
+    major: (from, to) => (zh ? `跨大版本（${from} -> ${to}），未允许` : `Major version change (${from} -> ${to}), not allowed`),
+    noTag: (tag) => (zh ? `没有 ${tag} 标签` : `No ${tag} tag`),
+    noInstalled: () => (zh ? '读不到已装版本' : 'Installed version unreadable'),
+    suppressed: (stamp) => (zh ? `上次安装失败，${stamp} UTC 前不再重试` : `Install failed before; not retried until ${stamp} UTC`),
+    lookupFailed: (msg) => (zh ? `查不到：${msg}` : `Lookup failed: ${msg}`),
+    agentsBusy: (n) => (zh ? `${n} 个子任务在跑` : `${n} subagent(s) running`),
+    sessionActive: (age) => (zh ? `会话在 ${ageText(age)} 分钟前还在写入` : `Session was written ${ageText(age)} min ago`),
+    noDeps: () => (zh ? '这个 profile 里没有可检查的依赖' : 'No dependencies to check in this profile'),
+    noUpdates: () => (zh ? '没有可更新的插件' : 'No updatable plugins'),
+    checkOnly: () => (zh ? '只查不装' : 'Check only'),
+    gated: (reasons) => (zh
+      ? `${listOf(reasons, sep)}，这一轮不安装`
+      : `${listOf(reasons, sep)} — not installing this cycle`),
+    noCli: () => (zh ? '找不到 dsh 命令行入口，无法安装' : 'dsh CLI entry not found; cannot install'),
+    noneInstalled: () => (zh ? '一个包都没装成' : 'No package installed successfully'),
+    installedRestart: (n) => (zh ? `已安装 ${n} 个，待重启` : `Installed ${n}; restart pending`),
+    installedNoHot: (n) => (zh ? `已安装 ${n} 个，未热生效` : `Installed ${n}; not applied in place`),
+    installedWith: (n, reason) => (zh ? `已安装 ${n} 个；${reason}` : `Installed ${n}; ${reason}`),
+    reloadUnavailable: () => (zh ? '这里没有能换插件的服务，已装好但要重启才生效' : 'No hot-reload service here; installed, applies after restart'),
+    reloadApplying: () => (zh ? '换代码还没结束，稍后再看一次' : 'Hot apply still running; check again shortly'),
+    reloadQueued: () => (zh ? '换代码还在排队，稍后再看一次' : 'Hot apply still queued; check again shortly'),
+    reloadDone: () => (zh ? '插件已换好，界面没重开' : 'Plugins swapped; page not reloaded'),
+    reloadOff: () => (zh ? '装好了，热生效是关的，重启后生效' : 'Installed; in-place apply is off, applies after restart'),
+    reloadCancelled: () => (zh ? '安装期间有子任务开跑，这一次不换代码' : 'A subagent started during install; not swapping code'),
+    rollbackRestart: () => (zh ? '回滚完成，重启后生效' : 'Rollback done; applies after restart'),
+    lockHeld: (holder, age) => (zh
+      ? `另一个进程正在装（${holder || '看不见持有者'}${typeof age === 'number' ? `，${age} 分钟前` : ''}）`
+      : `Another process is installing (${holder || 'holder unknown'}${typeof age === 'number' ? `, ${age} min ago` : ''})`),
+    lockFailed: (msg) => (zh ? `抢锁失败：${msg}` : `Could not take the install lock: ${msg}`),
+    rollbackNoRecord: (name) => (zh ? `没有可回滚的记录：${name}` : `Nothing to roll back: ${name}`),
+    runBusy: () => (zh ? '上一轮还没跑完' : 'The previous cycle is still running'),
+    neverRun: () => (zh ? '还没跑过' : 'Never run'),
+    lastSummary: (at, reason) => (zh ? `上一次：${at}；${reason}` : `Last run: ${at}; ${reason}`),
+    stateBroken: () => (zh ? '没能完成，插件状态需要核对' : 'Did not finish; plugin state needs a check'),
+    alreadyRunning: () => (zh ? '已经有一轮在跑' : 'A cycle is already running'),
+  }
+}
+
+const REASON_TEMPLATES = { zh: makeReasonTemplates('zh'), en: makeReasonTemplates('en') }
+
+function listOf(value, sep) {
+  if (Array.isArray(value)) return value.filter((item) => item !== '').join(sep)
+  return value === undefined || value === null ? '' : String(value)
+}
+
+/** 把参数里的原因对象就地翻成文字；数组要深挖，原因里可能嵌着原因。 */
+function localizeArg(value, lang) {
+  if (Array.isArray(value)) return value.map((item) => localizeArg(item, lang))
+  if (value !== null && typeof value === 'object') {
+    if (typeof value.code === 'string') return renderReason(value, lang)
+    return value
+  }
+  return value
+}
+
+/**
+ * 渲染一条原因。字符串原样返回——那是我们翻译不了的自由文本。
+ */
+function renderReason(value, lang) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value !== 'object') return String(value)
+  const code = typeof value.code === 'string' ? value.code : ''
+  const table = REASON_TEMPLATES[logLangOf(lang)]
+  const render = table[code]
+  const args = Array.isArray(value.args) ? value.args.map((item) => localizeArg(item, lang)) : []
+  if (typeof render !== 'function') return '[' + code + '] ' + args.join(' ')
+  try {
+    return render(...args)
+  } catch {
+    return '[' + code + '] ' + args.join(' ')
+  }
+}
+
 /** 只认 zh / en；其余（含 undefined）按中文渲染。 */
 function logLangOf(choice) {
   return choice === 'en' ? 'en' : 'zh'
@@ -195,7 +299,8 @@ function logLangOf(choice) {
 /** 渲染一条日志。认不出的 code 退化成一串参数，至少不丢信息。 */
 function renderLogEntry(code, args, lang) {
   const table = LOG_TEMPLATES[logLangOf(lang)]
-  const values = Array.isArray(args) ? args : []
+  // 参数里可能塞着原因对象（例如 skipInstall 的 why），先翻成文字再套模板。
+  const values = (Array.isArray(args) ? args : []).map((item) => localizeArg(item, lang))
   const render = table[String(code)]
   if (typeof render !== 'function') return '[' + String(code) + '] ' + values.join(' ')
   try {
@@ -658,7 +763,10 @@ function readLastRun() {
     updates: textList(raw.updates),
     installed: textList(raw.installed),
     reload: typeof raw.reload === 'string' ? raw.reload : 'none',
-    reason: typeof raw.reason === 'string' ? raw.reason : '',
+    // 0.6.2 及更早存的是句子；0.6.3 起是 { code, args }，两种都要能读。
+    reason: typeof raw.reason === 'string'
+      ? raw.reason
+      : (raw.reason !== null && typeof raw.reason === 'object' ? raw.reason : ''),
     snapshot: typeof raw.snapshot === 'string' ? raw.snapshot : '',
   }
 }
@@ -828,15 +936,15 @@ function suppressedUntil(pkgName, version, settings, now) {
 function upgradeVerdict(target, current, tag, settings) {
   const a = parseVersion(target)
   const b = parseVersion(current)
-  if (a === null || b === null) return { ok: false, why: '版本号无法比较' }
-  if (compareVersions(target, current) <= 0) return { ok: false, why: '已经是最新' }
+  if (a === null || b === null) return { ok: false, code: 'uncomparable', why: { code: 'uncomparable' } }
+  if (compareVersions(target, current) <= 0) return { ok: false, code: 'latest', why: { code: 'latest' } }
   // parseVersion 对正式版返回的是空数组而不是 null，判空得看长度。
   if (a.pre.length > 0 && tag !== 'next' && !settings.allowPrerelease) {
-    return { ok: false, why: '是预发布版本，未允许' }
+    return { ok: false, code: 'prerelease', why: { code: 'prerelease' } }
   }
   // 版本段存在 core 里：core[0] 是主版本。
   if (!settings.allowMajor && a.core[0] !== b.core[0]) {
-    return { ok: false, why: '跨大版本（' + b.core[0] + ' -> ' + a.core[0] + '），未允许' }
+    return { ok: false, code: 'major', why: { code: 'major', args: [b.core[0], a.core[0]] } }
   }
   return { ok: true }
 }
@@ -1194,11 +1302,11 @@ function sessionAgeMinutes(now, root = null) {
 function activityReasons(ctx, now, idleMinutes) {
   const reasons = []
   const agents = runningSubagents(ctx)
-  if (agents.length > 0) reasons.push(agents.length + ' 个子任务在跑')
+  if (agents.length > 0) reasons.push({ code: 'agentsBusy', args: [agents.length] })
   if (!(idleMinutes > 0)) return reasons
   const age = sessionAgeMinutes(now)
   if (age !== null && age < idleMinutes) {
-    reasons.push('会话在 ' + (age < 1 ? '不到 1' : Math.round(age)) + ' 分钟前还在写入')
+    reasons.push({ code: 'sessionActive', args: [age] })
   }
   return reasons
 }
@@ -1287,7 +1395,7 @@ function takeProfileLock(profileDir, now) {
     writeFileSync(file, stamp + '\n', { encoding: 'utf8', flag: 'wx' })
     return { ok: true, file }
   } catch (error) {
-    if (error?.code !== 'EEXIST') return { ok: false, reason: oneLine(error?.message ?? error, 160) }
+    if (error?.code !== 'EEXIST') return { ok: false, reason: { code: 'lockFailed', args: [oneLine(error?.message ?? error, 160)] } }
   }
   // 锁已存在：只有确认它过期（持有者崩了）才接管，否则老老实实让开。
   let ageMinutes = null
@@ -1299,8 +1407,7 @@ function takeProfileLock(profileDir, now) {
   if (ageMinutes === null || ageMinutes * 60000 <= LOCK_STALE_MS) {
     return {
       ok: false,
-      reason: '另一个进程正在装（' + (lockHolder(file) === '' ? '看不见持有者' : lockHolder(file))
-        + (ageMinutes === null ? '' : '，' + ageMinutes + ' 分钟前') + '）',
+      reason: { code: 'lockHeld', args: [lockHolder(file), ageMinutes] },
     }
   }
   try {
@@ -1311,7 +1418,7 @@ function takeProfileLock(profileDir, now) {
     writeLog('tookOverLock', [ageMinutes])
     return { ok: true, file }
   } catch (error) {
-    return { ok: false, reason: '抢锁失败：' + oneLine(error?.message ?? error, 160) }
+    return { ok: false, reason: { code: 'lockFailed', args: [oneLine(error?.message ?? error, 160)] } }
   }
 }
 
@@ -1362,7 +1469,7 @@ function activeEntryIds(ctx) {
 async function hotApply(ctx, requiredBefore) {
   const hmr = serviceOf(ctx, 'hmr')
   if (hmr === null || typeof hmr.reconcileProfile !== 'function' || typeof hmr.runExclusive !== 'function') {
-    return { status: 'unavailable', reason: '这里没有能换插件的服务，已装好但要重启才生效' }
+    return { status: 'unavailable', reason: { code: 'reloadUnavailable' } }
   }
   const context = transactionContext(hmr)
   const baseline = requiredBefore.filter((id) => id !== name)
@@ -1382,14 +1489,14 @@ async function hotApply(ctx, requiredBefore) {
     for (let attempt = 0; ; attempt += 1) {
       try {
         result = await Promise.race([run(), timeout])
-        if (timedOut) return { status: 'applying', reason: '换代码还没结束，稍后再看一次' }
+        if (timedOut) return { status: 'applying', reason: { code: 'reloadApplying' } }
         break
       } catch (error) {
         if (isNestedTransaction(error) && attempt < 9) {
           await new Promise((resolvePromise) => {
             setTimeout(resolvePromise, 250 * (attempt + 1))
           })
-          if (timedOut) return { status: 'applying', reason: '换代码还在排队，稍后再看一次' }
+          if (timedOut) return { status: 'applying', reason: { code: 'reloadQueued' } }
           continue
         }
         throw error
@@ -1399,7 +1506,7 @@ async function hotApply(ctx, requiredBefore) {
     const restartReason = typeof result?.restartReason === 'string' ? result.restartReason : null
     if (restartReason !== null) return { status: 'restart', reason: oneLine(restartReason, 400), warnings }
     if (warnings.length > 0) return { status: 'blocked', reason: oneLine(warnings[0], 400), warnings }
-    return { status: 'done', reason: '插件已换好，界面没重开', warnings }
+    return { status: 'done', reason: { code: 'reloadDone' }, warnings }
   } catch (error) {
     return { status: 'failed', reason: oneLine(error?.message ?? error, 400) }
   }
@@ -1433,7 +1540,7 @@ async function runCycle(mode, ctxRef) {
     const deps = dependencyList(profileDir, settings.exclude)
     report.checked = deps.length
     if (deps.length === 0) {
-      report.reason = '这个 profile 里没有可检查的依赖'
+      report.reason = { code: 'noDeps' }
       return report
     }
     for (let i = 0; i < deps.length; i += FETCH_CONCURRENCY) {
@@ -1447,12 +1554,12 @@ async function runCycle(mode, ctxRef) {
           const tags = await registryTags(dep.name)
           const tag = distTagFor(dep.name)
           const target = typeof tags[tag] === 'string' ? tags[tag] : null
-          if (target === null) return { name: dep.name, current, why: '没有 ' + tag + ' 标签' }
-          if (current === null) return { name: dep.name, current, why: '读不到已装版本' }
+          if (target === null) return { name: dep.name, current, why: { code: 'noTag', args: [tag] } }
+          if (current === null) return { name: dep.name, current, why: { code: 'noInstalled' } }
           const verdict = upgradeVerdict(target, current, tag, settings)
           if (!verdict.ok) {
             // 「已经是最新」不算异常，不必出现在 skipped 里。
-            if (verdict.why === '已经是最新') return null
+            if (verdict.code === 'latest') return null
             return { name: dep.name, current, target, why: verdict.why }
           }
           // 这个版本之前装失败过、还在抑制窗口内：这一轮不再试它。
@@ -1464,12 +1571,12 @@ async function runCycle(mode, ctxRef) {
               target,
               // 这里是服务端拼的纯文本，拿不到浏览器时区，所以显式写 UTC，
               // 免得把一个 UTC 时刻当成本地时间读。
-              why: '上次安装失败，' + until.toISOString().slice(0, 16).replace('T', ' ') + ' UTC 前不再重试',
+              why: { code: 'suppressed', args: [until.toISOString().slice(0, 16).replace('T', ' ')] },
             }
           }
           return { name: dep.name, current, target, tag }
         } catch (error) {
-          return { name: dep.name, current, why: '查不到：' + oneLine(error?.message ?? error, 120) }
+          return { name: dep.name, current, why: { code: 'lookupFailed', args: [oneLine(error?.message ?? error, 120)] } }
         }
       }))
       for (const answer of answers) {
@@ -1480,7 +1587,7 @@ async function runCycle(mode, ctxRef) {
     }
     writeLog('checked', [report.checked, report.updates.length])
     if (report.updates.length === 0) {
-      report.reason = '没有可更新的插件'
+      report.reason = { code: 'noUpdates' }
       return report
     }
     // 单轮上限：装包会一直占着 pnpm 锁，一轮装 20 个能把 profile 占住几十分钟。
@@ -1491,7 +1598,7 @@ async function runCycle(mode, ctxRef) {
       writeLog('capped', [settings.maxPerCycle, deferred])
     }
     if (mode === 'check' || !settings.autoApply) {
-      report.reason = '只查不装'
+      report.reason = { code: 'checkOnly' }
       return report
     }
     // 空闲门槛：装包会常驻占住 pnpm 并让界面变卡，换代码会把子任务中止。
@@ -1502,7 +1609,7 @@ async function runCycle(mode, ctxRef) {
       const why = activityReasons(ctxRef.ctx, new Date(), idleWindow)
       if (why.length > 0) {
         report.status = 'blocked'
-        report.reason = why.join('；') + '，这一轮不安装'
+        report.reason = { code: 'gated', args: [why] }
         writeLog('skipInstall', [why])
         return report
       }
@@ -1510,7 +1617,7 @@ async function runCycle(mode, ctxRef) {
     const runner = cliRunner()
     if (runner === null) {
       report.status = 'failed'
-      report.reason = '找不到 dsh 命令行入口，无法安装'
+      report.reason = { code: 'noCli' }
       return report
     }
     // 进程内的 running 管得住自己的两轮，管不住别的进程；pnpm 的锁是按 profile 算的。
@@ -1534,7 +1641,7 @@ async function runCycle(mode, ctxRef) {
     }
   } catch (error) {
     report.status = 'failed'
-    report.reason = oneLine(error?.message ?? error, 400)
+    report.reason = { code: 'raw', args: [oneLine(error?.message ?? error, 400)] }
     writeLog('cycleFailed', [report.reason])
     return report
   } finally {
@@ -1584,25 +1691,25 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
     const okCount = report.installed.filter((item) => item.ok).length
     if (okCount === 0) {
       report.status = 'failed'
-      report.reason = '一个包都没装成'
+      report.reason = { code: 'noneInstalled' }
       return report
     }
     if (!settings.hotReload) {
-      report.reload = { status: 'skipped', reason: '装好了，热生效是关的，重启后生效' }
-      report.reason = '已安装 ' + okCount + ' 个，待重启'
+      report.reload = { status: 'skipped', reason: { code: 'reloadOff' } }
+      report.reason = { code: 'installedRestart', args: [okCount] }
       return report
     }
     // 装完之后再确认一次：安装可能耗时几分钟，期间可能有人开了子任务。
     // 这里只看子任务，不看会话写入——换代码不会打断正在打字的用户，
     // 但会因为「刚有写入」就放弃热生效，让装好的东西白等一次重启。
     if (settings.idleOnly && runningSubagents(ctxRef.ctx).length > 0) {
-      report.reload = { status: 'cancelled', reason: '安装期间有子任务开跑，这一次不换代码' }
-      report.reason = '已安装 ' + okCount + ' 个，未热生效'
+      report.reload = { status: 'cancelled', reason: { code: 'reloadCancelled' } }
+      report.reason = { code: 'installedNoHot', args: [okCount] }
       return report
     }
     report.reload = await hotApply(ctxRef.ctx, requiredBefore)
     writeLog('hotApply', [report.reload.status, report.reload.reason ?? ''])
-    report.reason = '已安装 ' + okCount + ' 个；' + (report.reload.reason ?? '')
+    report.reason = { code: 'installedWith', args: [okCount, report.reload.reason] }
     if (report.reload.status === 'failed') report.status = 'failed'
     else if (report.reload.status === 'blocked' || report.reload.status === 'restart') report.status = 'partial'
     return report
@@ -1649,11 +1756,11 @@ async function rollbackOne(ctxRef, entryName) {
   const settings = settingsOf(ctxRef.config)
   const rows = readHistory()
   const row = pickRollbackTarget(rows, entryName)
-  if (row === undefined) return { ok: false, reason: '没有可回滚的记录：' + entryName }
+  if (row === undefined) return { ok: false, reason: { code: 'rollbackNoRecord', args: [entryName] } }
   const profileDir = profileDirOf(ctxRef.ctx)
   const profileName = basename(profileDir)
   const runner = cliRunner()
-  if (runner === null) return { ok: false, reason: '找不到 dsh 命令行入口' }
+  if (runner === null) return { ok: false, reason: { code: 'noCli' } }
   // 回滚也是一次 pnpm 安装，和定时轮次抢同一把 profile 锁。
   // 拿不到就明确告诉用户「有别的进程在装」，而不是让两个 pnpm 撞锁报 EPERM。
   const lock = takeProfileLock(profileDir, new Date())
@@ -1677,7 +1784,7 @@ async function rollbackOne(ctxRef, entryName) {
     rolledBack: true,
   })
   saveHistory(next)
-  let reload = { status: 'skipped', reason: '回滚完成，重启后生效' }
+  let reload = { status: 'skipped', reason: { code: 'rollbackRestart' } }
   if (settings.hotReload) reload = await hotApply(ctxRef.ctx, [])
   return { ok: true, name: row.name, to: row.from, reload: reload.status }
 }
@@ -1687,7 +1794,7 @@ function registerTool(ctx, config) {
   if (tools === null || typeof tools.register !== 'function') return false
   const effect = propOf(ctx, 'effect')
   if (typeof effect !== 'function') return false
-  const empty = { status: 'busy', reason: '上一轮还没跑完', checked: 0, updates: [], installed: [], reload: 'none' }
+  const empty = { status: 'busy', reason: { code: 'runBusy' }, checked: 0, updates: [], installed: [], reload: 'none' }
   try {
     effect.call(ctx, () => tools.register({
       name: 'plugin_updater',
@@ -1719,17 +1826,22 @@ function registerTool(ctx, config) {
           required: ['status'],
           additionalProperties: false,
         },
-        render: (_args, value) => [{ type: 'text', text: '插件更新 · ' + (value?.reason || value?.status || '') }],
+        render: (_args, value) => [{
+          type: 'text',
+          text: (settingsOf(config).lang === 'en' ? 'Plugin update · ' : '插件更新 · ') + (value?.reason || value?.status || ''),
+        }],
       },
       execute: async (args) => {
         try {
+          // 工具结果是给模型看的，也照设置里的语言出，别让 reason 变成 { code, args } 的裸 JSON。
+          const lang = settingsOf(config).lang
           const action = args?.action === 'check' || args?.action === 'update' ? args.action : 'status'
           if (action === 'status') {
             const seen = lastRun
-            if (seen === null) return { status: 'done', reason: '还没跑过', checked: 0, updates: [], installed: [], reload: 'none' }
+            if (seen === null) return { status: 'done', reason: renderReason({ code: 'neverRun' }, lang), checked: 0, updates: [], installed: [], reload: 'none' }
             return {
               status: seen.status,
-              reason: '上一次：' + seen.at + '；' + (seen.reason || seen.status),
+              reason: renderReason({ code: 'lastSummary', args: [seen.at, seen.reason || seen.status] }, lang),
               checked: seen.checked,
               updates: seen.updates,
               installed: seen.installed,
@@ -1737,19 +1849,23 @@ function registerTool(ctx, config) {
             }
           }
           const report = await beginningRun(action, { ctx, config })
-          if (report === null) return empty
+          if (report === null) return { ...empty, reason: renderReason(empty.reason, lang) }
           return {
             status: report.status,
-            reason: report.reason || '',
+            reason: renderReason(report.reason, lang),
             checked: report.checked,
             updates: report.updates.map((item) => item.name + ' ' + (item.current ?? '?') + ' -> ' + item.target),
             installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' !failed')),
             reload: report.reload?.status ?? 'none',
-            skipped: report.skipped.map((item) => item.name + '：' + item.why),
+            skipped: report.skipped.map((item) => item.name + (lang === 'en' ? ': ' : '：') + renderReason(item.why, lang)),
           }
         } catch (error) {
           writeLog('toolFailed', [oneLine(error?.message ?? error, 300)])
-          return { status: 'failed', reason: '没能完成，插件状态需要核对', checked: 0, updates: [], installed: [], reload: 'none' }
+          return {
+            status: 'failed',
+            reason: renderReason({ code: 'stateBroken' }, settingsOf(config).lang),
+            checked: 0, updates: [], installed: [], reload: 'none',
+          }
         }
       },
     }), 'dsh-aupdate: plugin_updater')
@@ -1861,14 +1977,14 @@ function readBody(req) {
   })
 }
 
-function settingsSnapshot(config, ctxRef) {
+function settingsSnapshot(config, ctxRef, lang) {
   const settings = settingsOf(config)
   return {
     settings,
     overrides: readOverrides(),
     lastRun: lastRun === null ? null : {
       status: lastRun.status,
-      reason: lastRun.reason,
+      reason: renderReason(lastRun.reason, lang),
       at: lastRun.at,
       checked: lastRun.checked,
       updates: lastRun.updates,
@@ -1943,7 +2059,7 @@ function registerRoutes(scope, ctxRef) {
       const method = req.method ?? 'GET'
       if (method === 'GET' || method === 'HEAD') {
         if (suffix === '/state') {
-          sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef))
+          sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef, url.searchParams.get('lang')))
           return
         }
         if (suffix === '/logs') {
@@ -1972,7 +2088,7 @@ function registerRoutes(scope, ctxRef) {
           } catch (error) {
             writeLog('rescheduleFailed', [oneLine(error?.message ?? error, 200)])
           }
-          sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef))
+          sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef, url.searchParams.get('lang')))
           return
         }
         if (suffix === '/rollback') {
@@ -1984,7 +2100,7 @@ function registerRoutes(scope, ctxRef) {
           }
           const outcome = await rollbackOne(ctxRef, target)
           writeLog('rollbackRequest', [target, outcome.ok === true, outcome.reason ?? ''])
-          sendJson(res, outcome.ok ? 200 : 409, outcome)
+          sendJson(res, outcome.ok ? 200 : 409, { ...outcome, reason: renderReason(outcome.reason, url.searchParams.get('lang')) })
           return
         }
         if (suffix === '/run') {
@@ -1992,10 +2108,10 @@ function registerRoutes(scope, ctxRef) {
           const mode = body?.mode === 'check' ? 'check' : 'update'
           const report = await beginningRun(mode, ctxRef)
           if (report === null) {
-            sendJson(res, 200, { started: false, reason: '已经有一轮在跑' })
+            sendJson(res, 200, { started: false, reason: renderReason({ code: 'alreadyRunning' }, url.searchParams.get('lang')) })
             return
           }
-          sendJson(res, 200, { started: true, status: report.status, reason: report.reason })
+          sendJson(res, 200, { started: true, status: report.status, reason: renderReason(report.reason, url.searchParams.get('lang')) })
           return
         }
         sendJson(res, 404, { error: 'unknown endpoint' })

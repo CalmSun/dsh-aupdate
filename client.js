@@ -336,8 +336,14 @@ window.__ModuleLoader__.load({
       }
     }
 
-    async function getState() {
-      const response = await fetch(endpoint('state'), {
+    /** 后端按这个参数渲染原因文本（lastRun.reason 等），所以每个请求都要带上。 */
+    function langQuery() {
+      return '?lang=' + (LANG === 'en' ? 'en' : 'zh')
+    }
+
+    async function getState(lang) {
+      const wanted = lang === 'en' ? 'en' : 'zh'
+      const response = await fetch(endpoint('state') + '?lang=' + wanted, {
         headers: { accept: 'application/json' },
         cache: 'no-store',
       })
@@ -357,7 +363,7 @@ window.__ModuleLoader__.load({
     }
 
     async function saveState(patch) {
-      const response = await fetch(endpoint('state'), {
+      const response = await fetch(endpoint('state') + langQuery(), {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify(patch),
@@ -367,7 +373,7 @@ window.__ModuleLoader__.load({
     }
 
     async function rollback(name) {
-      const response = await fetch(endpoint('rollback'), {
+      const response = await fetch(endpoint('rollback') + langQuery(), {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ name }),
@@ -377,7 +383,7 @@ window.__ModuleLoader__.load({
     }
 
     async function runNow(mode) {
-      const response = await fetch(endpoint('run'), {
+      const response = await fetch(endpoint('run') + langQuery(), {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ mode }),
@@ -616,7 +622,7 @@ window.__ModuleLoader__.load({
       const load = useCallback(async () => {
         setPhase('loading')
         try {
-          const next = await getState()
+          const next = await getState(LANG)
           // 语言先落地再渲染：否则第一屏会先按系统语言画一次，再跳成用户选的。
           applyLang(next?.settings?.lang)
           setState(next)
@@ -625,7 +631,8 @@ window.__ModuleLoader__.load({
         } catch {
           setPhase('error')
         }
-      }, [])
+        // LANG 进依赖：切换显示语言后要重新取一次，原因文本才是新语言的。
+      }, [LANG])
 
       useEffect(() => { void load() }, [load])
 
@@ -694,7 +701,7 @@ window.__ModuleLoader__.load({
           }
           // 跑完把状态刷一遍，页面上看到的就是最新结果。
           try {
-            const next = await getState()
+            const next = await getState(LANG)
             setState(next)
             setDraft((prev) => (prev === null ? next.settings : prev))
           } catch {}
@@ -720,7 +727,7 @@ window.__ModuleLoader__.load({
           const result = await rollback(target)
           setRollHint(result.ok ? T.rollbackDone + ' · ' + target : T.rollbackFailed + ' · ' + (result.payload?.reason ?? ''))
           try {
-            const next = await getState()
+            const next = await getState(LANG)
             setState(next)
             setDraft((prev) => (prev === null ? next.settings : prev))
           } catch {}
@@ -956,12 +963,12 @@ window.__ModuleLoader__.load({
         let alive = true
         void (async () => {
           try {
-            const next = await getState()
+            const next = await getState(LANG)
             if (alive) setState(next)
           } catch {}
         })()
         return () => { alive = false }
-      }, [])
+      }, [LANG])
       const last = state?.lastRun
       const text = state === null
         ? '…'
@@ -1055,7 +1062,7 @@ window.__ModuleLoader__.load({
       const tick = async () => {
         if (stopped) return
         try {
-          const state = await getState()
+          const state = await getState(LANG)
           if (state?.settings?.notify !== false) {
             const updates = Array.isArray(state?.lastRun?.updates) ? state.lastRun.updates : []
             if (updates.length > 0) {
