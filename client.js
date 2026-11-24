@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: 'dsh-aupdate',
   factory(require) {
     const React = require('react')
-    const { useCallback, useEffect, useMemo, useState } = React
+    const { useCallback, useEffect, useMemo, useRef, useState } = React
     const h = React.createElement
 
     const NS = 'dsh-aupdate'
@@ -611,7 +611,6 @@ window.__ModuleLoader__.load({
       const [state, setState] = useState(null)
       const [draft, setDraft] = useState(null)
       const [phase, setPhase] = useState('loading') // loading | ready | error
-      const [saving, setSaving] = useState(false)
       const [saveHint, setSaveHint] = useState('')
       const [running, setRunning] = useState(false)
       const [runHint, setRunHint] = useState('')
@@ -639,77 +638,58 @@ window.__ModuleLoader__.load({
       useEffect(() => { void load() }, [load])
 
       /**
-       * 语言是显示偏好，和别的设置不一样：它切换后立刻生效，也必须立刻落盘。
+       * 立即保存。
        *
-       * 三个理由：
-       * - 不落盘的话，用户选了 English 但没点保存，下次打开页面又回到「跟随系统」；
-       * - 只提交 lang 一个键，不会顺手把用户还没想好的其他改动一起存掉；
-       * - 一次请求既换文案又换服务端渲染的原因文本，不用再单独取一次 state，
-       *   也就没有「取回来的旧 lang 把选择覆盖掉」这种竞态。
+       * 原来是「改一堆 → 点保存」：改完直接关掉页面，改动就全丢了；显示语言这种偏好
+       * 尤其容易忘。现在每个改动就地落盘，没有保存按钮。
+       *
+       * 两件事必须处理对：
+       * - 数字框每敲一个字符就触发一次改动，所以攒 350ms 合成一个请求；
+       * - 请求还在飞的时候又来了新改动，就等它回来再补一次，绝不并发写——
+       *   服务端是「读当前 + 合并 + 写」，两个请求同时进来会丢掉一个。
        */
-      const persistLang = useCallback(async (value) => {
+      const pendingRef = useRef({})
+      const timerRef = useRef(null)
+      const inflightRef = useRef(false)
+
+      const flush = useCallback(async () => {
+        if (inflightRef.current) return
+        const batch = pendingRef.current
+        if (Object.keys(batch).length === 0) return
+        pendingRef.current = {}
+        inflightRef.current = true
+        setSaveHint(T.saving)
         try {
-          const next = await saveState({ lang: value })
-          applyLang(next?.settings?.lang)
+          const next = await saveState(batch)
+          // 只换 state（lastRun、history 这些由服务端算），不回灌草稿：
+          // 草稿里可能已经有比这份响应更新的输入。
           setState(next)
-          // 草稿只更新 lang：其他输入框里没保存的内容不能被动过。
-          setDraft((prev) => (prev === null ? next.settings : { ...prev, lang: next.settings.lang }))
+          setSaveHint(T.saved + ' · ' + T.savedHint)
         } catch {
+          // 失败的键补回队列，下次改动会一起重试，不静默吞掉用户的设置。
+          pendingRef.current = { ...batch, ...pendingRef.current }
           setSaveHint(T.failed)
+        } finally {
+          inflightRef.current = false
+          if (Object.keys(pendingRef.current).length > 0 && timerRef.current === null) {
+            timerRef.current = setTimeout(() => { timerRef.current = null; void flush() }, 350)
+          }
         }
       }, [])
 
       const patch = useCallback((key, value) => {
         setDraft((prev) => (prev === null ? prev : { ...prev, [key]: value }))
         setSaveHint('')
+        pendingRef.current[key] = value
+        if (timerRef.current !== null) clearTimeout(timerRef.current)
+        timerRef.current = setTimeout(() => { timerRef.current = null; void flush() }, 350)
+      }, [flush])
+
+      // 卸载时别把定时器留下，否则会对已经卸载的组件 setState。
+      useEffect(() => () => {
+        if (timerRef.current !== null) clearTimeout(timerRef.current)
       }, [])
 
-      const dirty = useMemo(() => {
-        if (state === null || draft === null) return false
-        const keys = ['lang', 'enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'notify', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours', 'maxPerCycle', 'sessionIdleMinutes']
-        for (const key of keys) {
-          if (draft[key] !== state.settings[key]) return true
-        }
-        if (String((draft.exclude || []).join('\n')) !== String((state.settings.exclude || []).join('\n'))) return true
-        return false
-      }, [state, draft])
-
-      const save = useCallback(async () => {
-        if (draft === null || saving) return
-        setSaving(true)
-        setSaveHint('')
-        try {
-          const next = await saveState({
-            lang: draft.lang,
-            enabled: draft.enabled,
-            autoApply: draft.autoApply,
-            hotReload: draft.hotReload,
-            checkOnStart: draft.checkOnStart,
-            idleOnly: draft.idleOnly,
-            notify: draft.notify,
-            intervalMinutes: draft.intervalMinutes,
-            firstDelayMinutes: draft.firstDelayMinutes,
-            exclude: draft.exclude,
-            allowMajor: draft.allowMajor,
-            allowPrerelease: draft.allowPrerelease,
-            scheduleMode: draft.scheduleMode,
-            dailyAt: draft.dailyAt,
-            everyHours: draft.everyHours,
-            everyDays: draft.everyDays,
-            suppressHours: draft.suppressHours,
-            maxPerCycle: draft.maxPerCycle,
-            sessionIdleMinutes: draft.sessionIdleMinutes,
-          })
-          applyLang(next?.settings?.lang)
-          setState(next)
-          setDraft(next.settings)
-          setSaveHint(T.saved + ' · ' + T.savedHint)
-        } catch {
-          setSaveHint(T.failed)
-        } finally {
-          setSaving(false)
-        }
-      }, [draft, saving])
 
       const fire = useCallback(async () => {
         if (running) return
@@ -787,9 +767,9 @@ window.__ModuleLoader__.load({
             // 先切文案再落盘：切换要立刻看得见，不能等保存往返。
             // 顺序很重要：applyLang 换完 LANG，后面的取数才会带新语言。
             onChange: (v) => {
+              // 先切文案（applyLang 会立刻换 T 并重渲染），落盘交给自动保存队列。
               patch('lang', v)
               applyLang(v)
-              void persistLang(v)
             },
             options: [
               { value: 'auto', label: T.langAuto },
@@ -853,8 +833,8 @@ window.__ModuleLoader__.load({
           h(SwitchRow, { label: T.allowPrerelease, hint: T.allowPrereleaseHint, value: draft.allowPrerelease, onChange: (v) => patch('allowPrerelease', v) }),
         ),
         h('div', { style: S.actions },
-          h('button', { type: 'button', style: dirty ? S.btnPrimary : S.btn, disabled: !dirty || saving, onClick: () => void save() }, saving ? T.saving : T.save),
           h('button', { type: 'button', style: S.btn, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
+          // 没有保存按钮：改动自己在 350ms 后落盘，这里只报它落没落成。
           saveHint ? h('span', { style: S.status }, saveHint) : null,
           runHint ? h('span', { style: S.status }, runHint) : null,
         ),

@@ -120,7 +120,9 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 
 ## 设置页
 
-插件页里的这一行有摘要和整页两种视图，保存后立刻按新节奏重排，不用重启。
+插件页里的这一行有摘要和整页两种视图。**没有保存按钮**：每个改动就地落盘（攒 350ms
+合成一次请求，请求串行，不并发写同一个设置文件），落盘后立刻按新节奏重排，不用重启。
+数字框每敲一个字符都会变一次，但不会一个字符发一个请求。
 同一份界面还挂在**设置 → 插件更新**里，是独立的一页，不用先去插件页翻这张卡。
 读写走 `/api/dsh-aupdate/{state,run,rollback,logs}`。
 
@@ -143,10 +145,9 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 
 ### 显示语言
 
-设置页顶部有「显示语言」：跟随系统 / 中文 / English。切换后**立即生效并立即保存**——
-它属于显示偏好，不该要求用户再点一次保存，也不该顺带保存其他没改完的设置；只提交
-`lang` 一个键。选择存进 `~/.dsh/aupdate-settings.json`，换个浏览器或换台机器打开设置页
-还是同一个语言。只影响文案，不改插件的更新行为。
+设置页顶部有「显示语言」：跟随系统 / 中文 / English。切换后立刻生效，并和其它设置一样
+立即落盘。选择存进 `~/.dsh/aupdate-settings.json`（键 `lang`），换个浏览器或换台机器打开
+设置页还是同一个语言。只影响文案，不改插件的更新行为。
 
 整页最下面是**运行日志**卡片，直接看插件最近写了什么，不用再去翻文件。日志正文用中文写，
 一行一件事（检查了多少个、装哪个、为什么跳过），状态词也翻成人话；
@@ -354,8 +355,11 @@ pile up one row per cycle and bury the entry you actually want to return to.
 
 ### Settings page
 
-The row in the plugins page shows a summary and a full page; saving re-schedules
-immediately without a restart. The same UI is also its own page under
+The row in the plugins page shows a summary and a full page. There is **no Save button**:
+every change is persisted as you make it — coalesced into one request over 350 ms, sent
+serially so two requests never write the same settings file at once — and re-schedules
+immediately without a restart. A number field fires per keystroke; that does not become
+one request per character. The same UI is also its own page under
 **Settings → Plugin updates**, so it is not buried in the plugins page.
 
 `exclude` is a checkbox list of the plugins actually installed in this profile, with
@@ -370,12 +374,10 @@ like nothing had happened.
 
 ### Display language
 
-The page offers **Display language**: follow the system, 中文, or English. The switch
-applies and saves immediately — it is a display preference, so it should not need a
-second Save click, and it must not persist whatever else you were still editing; only the
-`lang` key is submitted. The choice is stored in `~/.dsh/aupdate-settings.json`, so
-another browser or machine opens the page in the same language. Wording only — it changes
-no update behaviour.
+The page offers **Display language**: follow the system, 中文, or English. It applies at
+once and, like every other setting, is persisted immediately. The choice is stored in
+`~/.dsh/aupdate-settings.json` (key `lang`), so another browser or machine opens the page
+in the same language. Wording only — it changes no update behaviour.
 
 ### Update notices
 
