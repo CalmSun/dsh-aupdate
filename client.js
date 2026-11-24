@@ -95,6 +95,11 @@ window.__ModuleLoader__.load({
         pkgsNotInstalled: '未安装',
         pkgsNoMatch: '没有匹配的插件',
         pageLabel: '插件更新',
+        language: '显示语言',
+        languageHint: '只换这个设置页和提醒的文案，不改插件的更新行为',
+        langAuto: '跟随系统',
+        langZh: '中文',
+        langEn: 'English',
         toastTitle: '{n} 个插件可以更新',
         toastMore: '还有 {n} 个',
         toastDismiss: '知道了',
@@ -195,6 +200,11 @@ window.__ModuleLoader__.load({
         pkgsNotInstalled: 'not installed',
         pkgsNoMatch: 'Nothing matches',
         pageLabel: 'Plugin updates',
+        language: 'Display language',
+        languageHint: 'Changes the wording of this page and its notices, not what the plugin updates',
+        langAuto: 'Follow the system',
+        langZh: '中文',
+        langEn: 'English',
         toastTitle: '{n} plugin(s) can update',
         toastMore: 'and {n} more',
         toastDismiss: 'Got it',
@@ -222,9 +232,50 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const IS_ZH = detectZh()
-    const T = IS_ZH ? COPY.zh : COPY.en
-    const LOCALE = IS_ZH ? 'zh-CN' : 'en-US'
+    /**
+     * 显示语言。
+     *
+     * 原来在模块加载时算一次就定死了：中文系统永远中文、英文系统永远英文，用户在
+     * 设置页里改不了。现在语言是可变状态——applyLang 换掉 T 并通知所有订阅者重渲染，
+     * 选择本身存进设置覆盖层（settings.lang），换个浏览器打开也还是这个选择。
+     */
+    const AUTOLANG = detectZh() ? 'zh' : 'en'
+    const LANG_CHOICES = ['auto', 'zh', 'en']
+    let LANG = AUTOLANG
+    let LOCALE = LANG === 'zh' ? 'zh-CN' : 'en-US'
+    let T = COPY[LANG]
+    const langListeners = new Set()
+
+    /** 把 auto / zh / en 落成实际语言；认不出的值一律当 auto。 */
+    function resolveLang(choice) {
+      return choice === 'zh' || choice === 'en' ? choice : AUTOLANG
+    }
+
+    function applyLang(choice) {
+      const next = resolveLang(choice)
+      if (next === LANG) return
+      LANG = next
+      LOCALE = LANG === 'zh' ? 'zh-CN' : 'en-US'
+      T = COPY[LANG]
+      for (const listener of langListeners) {
+        try { listener() } catch {}
+      }
+    }
+
+    /**
+     * 订阅语言变化。
+     *
+     * 每个直接渲染 T 的组件都要调一次：否则切换时只有拿到新状态的组件更新，其余部分
+     * 停在旧语言上——一页里中英混排，比不支持切换更难看。
+     */
+    function useLang() {
+      const [, force] = useState(0)
+      useEffect(() => {
+        const listener = () => force((n) => n + 1)
+        langListeners.add(listener)
+        return () => { langListeners.delete(listener) }
+      }, [])
+    }
 
     /**
      * 时间必须先转成浏览器本地时区再显示。
@@ -269,12 +320,12 @@ window.__ModuleLoader__.load({
       const when = new Date(iso)
       if (Number.isNaN(when.getTime())) return ''
       const minutes = Math.floor((Date.now() - when.getTime()) / 60000)
-      if (minutes < 1) return IS_ZH ? '刚刚' : 'just now'
-      if (minutes < 60) return IS_ZH ? minutes + ' 分钟前' : minutes + ' min ago'
+      if (minutes < 1) return LANG === 'zh' ? '刚刚' : 'just now'
+      if (minutes < 60) return LANG === 'zh' ? minutes + ' 分钟前' : minutes + ' min ago'
       const hours = Math.floor(minutes / 60)
-      if (hours < 24) return IS_ZH ? hours + ' 小时前' : hours + ' h ago'
+      if (hours < 24) return LANG === 'zh' ? hours + ' 小时前' : hours + ' h ago'
       const days = Math.floor(hours / 24)
-      return IS_ZH ? days + ' 天前' : days + ' d ago'
+      return LANG === 'zh' ? days + ' 天前' : days + ' d ago'
     }
 
     function endpoint(name) {
@@ -487,6 +538,7 @@ window.__ModuleLoader__.load({
      * 自己填的到底是不是想排除的那个。改成从 /state 拿到的已装清单直接勾。
      */
     function PackagePicker(props) {
+      useLang()
       const { packages, selected, onChange } = props
       const [query, setQuery] = useState('')
       const chosen = useMemo(() => new Set(Array.isArray(selected) ? selected : []), [selected])
@@ -547,6 +599,7 @@ window.__ModuleLoader__.load({
     }
 
     function AutoUpdateCard() {
+      useLang()
       const [state, setState] = useState(null)
       const [draft, setDraft] = useState(null)
       const [phase, setPhase] = useState('loading') // loading | ready | error
@@ -562,6 +615,8 @@ window.__ModuleLoader__.load({
         setPhase('loading')
         try {
           const next = await getState()
+          // 语言先落地再渲染：否则第一屏会先按系统语言画一次，再跳成用户选的。
+          applyLang(next?.settings?.lang)
           setState(next)
           setDraft(next.settings)
           setPhase('ready')
@@ -579,7 +634,7 @@ window.__ModuleLoader__.load({
 
       const dirty = useMemo(() => {
         if (state === null || draft === null) return false
-        const keys = ['enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'notify', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours', 'maxPerCycle', 'sessionIdleMinutes']
+        const keys = ['lang', 'enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'notify', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours', 'maxPerCycle', 'sessionIdleMinutes']
         for (const key of keys) {
           if (draft[key] !== state.settings[key]) return true
         }
@@ -593,6 +648,7 @@ window.__ModuleLoader__.load({
         setSaveHint('')
         try {
           const next = await saveState({
+            lang: draft.lang,
             enabled: draft.enabled,
             autoApply: draft.autoApply,
             hotReload: draft.hotReload,
@@ -612,6 +668,7 @@ window.__ModuleLoader__.load({
             maxPerCycle: draft.maxPerCycle,
             sessionIdleMinutes: draft.sessionIdleMinutes,
           })
+          applyLang(next?.settings?.lang)
           setState(next)
           setDraft(next.settings)
           setSaveHint(T.saved + ' · ' + T.savedHint)
@@ -691,6 +748,18 @@ window.__ModuleLoader__.load({
           h('p', { style: S.sub }, T.subtitle),
         ),
         h('div', { style: S.card },
+          h(SelectRow, {
+            label: T.language,
+            hint: T.languageHint,
+            value: draft.lang ?? 'auto',
+            // 先切文案再落盘：切换要立刻看得见，不能等保存往返。
+            onChange: (v) => { patch('lang', v); applyLang(v) },
+            options: [
+              { value: 'auto', label: T.langAuto },
+              { value: 'zh', label: T.langZh },
+              { value: 'en', label: T.langEn },
+            ],
+          }),
           h(SwitchRow, { label: T.enabled, hint: T.enabledHint, value: draft.enabled, onChange: (v) => patch('enabled', v) }),
           h(SwitchRow, { label: T.autoApply, hint: T.autoApplyHint, value: draft.autoApply, onChange: (v) => patch('autoApply', v), disabled: !draft.enabled }),
           h(SwitchRow, { label: T.hotReload, hint: T.hotReloadHint, value: draft.hotReload, onChange: (v) => patch('hotReload', v), disabled: !draft.enabled }),
@@ -805,6 +874,7 @@ window.__ModuleLoader__.load({
      * 每 5 秒重渲染自己，不该把整张设置卡片连同输入框一起重渲染——那样光标会跳。
      */
     function LogCard() {
+      useLang()
       const [lines, setLines] = useState(200)
       const [data, setData] = useState(null)
       const [phase, setPhase] = useState('loading') // loading | ready | missing
@@ -877,6 +947,7 @@ window.__ModuleLoader__.load({
      * summary 只报最关键的一件事——上次检查的结果，别把整页塞进一行。
      */
     function AutoUpdateSummary() {
+      useLang()
       const [state, setState] = useState(null)
       useEffect(() => {
         let alive = true

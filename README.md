@@ -141,6 +141,12 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 「还没跑过」，看着像这一轮根本没跑过。读的时候逐字段校验，坏文件只会让这张卡缺席，
 不会让插件加载失败。
 
+### 显示语言
+
+设置页顶部有「显示语言」：跟随系统 / 中文 / English。切换立即生效，不用等保存往返；
+选择会存进 `~/.dsh/aupdate-settings.json`（键 `lang`），换个浏览器或换台机器打开设置页
+还是同一个语言。只影响文案，不改插件的更新行为。
+
 整页最下面是**运行日志**卡片，直接看插件最近写了什么，不用再去翻文件。日志正文用中文写，
 一行一件事（检查了多少个、装哪个、为什么跳过），状态词也翻成人话；
 
@@ -355,6 +361,13 @@ The last run's outcome (when, how many checked, how many updatable, how many ins
 why it failed) is persisted to `~/.dsh/aupdate-lastrun.json` and survives a restart. It
 used to live in memory only, so every restart reset the card to "never run" and looked
 like nothing had happened.
+
+### Display language
+
+The page offers **Display language**: follow the system, 中文, or English. The switch
+applies immediately without a save round-trip, and the choice is stored in
+`~/.dsh/aupdate-settings.json` (key `lang`), so another browser or machine opens the page
+in the same language. Wording only — it changes no update behaviour.
 
 ### Update notices
 

@@ -254,12 +254,27 @@ const OVERRIDEABLE = [
   // 只活在覆盖层里——Config 的字段类型是宿主校验的，加错一个类型
   // 会在加载期直接抛错，而覆盖层是我们自己的文件，改坏了只影响这一项。
   'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours',
+  // 界面显示语言。存这里而不是浏览器里：换台机器、换个浏览器打开，选择还在。
+  'lang',
   // 效率闸门：一轮最多装几个、会话多静才算闲。
   'maxPerCycle', 'sessionIdleMinutes',
 ]
 
 /** 四种调度模式。minutes 是原来的「间隔 N 分钟」，其余照抄竞品。 */
 const SCHEDULE_MODES = ['minutes', 'hours', 'days', 'daily']
+
+/**
+ * 界面语言。auto = 跟随系统（中文环境给中文，其余给英文）。
+ *
+ * 之所以要存到设置层而不是只留在 localStorage：这个值决定整页文案，
+ * 换个浏览器或换台机器打开设置页时，用户不该再选一次。
+ */
+const LANG_CHOICES = ['auto', 'zh', 'en']
+
+function langOf(config) {
+  const text = typeof config?.lang === 'string' ? config.lang.trim().toLowerCase() : ''
+  return LANG_CHOICES.includes(text) ? text : 'auto'
+}
 
 /** 数值型覆盖项的边界：写坏了钳进范围，而不是让设置页把插件配废。 */
 const NUMBER_BOUNDS = {
@@ -320,6 +335,11 @@ function writeOverrides(patch) {
     if (key === 'scheduleMode') {
       const text = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
       if (SCHEDULE_MODES.includes(text)) next[key] = text
+      continue
+    }
+    if (key === 'lang') {
+      const text = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+      if (LANG_CHOICES.includes(text)) next[key] = text
       continue
     }
     const bounds = NUMBER_BOUNDS[key]
@@ -414,6 +434,7 @@ function settingsOf(config) {
     allowPrerelease: booleanSetting(config, 'allowPrerelease', false),
     // 调度模式：intervalMinutes 只在 minutes 模式下生效，
     // 其余三种各有自己的参数，切模式不丢原来的值。
+    lang: langOf(config),
     scheduleMode: scheduleModeOf(config),
     dailyAt: clockOf(config, 'dailyAt', '03:00'),
     everyHours: numberSetting(config, 'everyHours', 6, 1, 168),
