@@ -103,6 +103,17 @@ window.__ModuleLoader__.load({
         toastTitle: '{n} 个插件可以更新',
         toastMore: '还有 {n} 个',
         toastDismiss: '知道了',
+        keepTitle: '保留期限',
+        keepHint: '到期自动清掉旧的更新记录与运行日志；0 表示一直保留。回滚记录会和对应更新一起保留',
+        keepHistory: '更新记录保留',
+        keepLog: '运行日志保留',
+        keepDay: '天',
+        keepForever: '永久保留',
+        cleanNow: '立即清理',
+        cleaning: '清理中…',
+        cleanDone: '已清理 {n} 条',
+        cleanNothing: '没有需要清理的',
+        cleanFail: '清理失败',
         history: '更新记录',
         historyEmpty: '还没有安装过任何更新',
         rollback: '回滚',
@@ -208,6 +219,17 @@ window.__ModuleLoader__.load({
         toastTitle: '{n} plugin(s) can update',
         toastMore: 'and {n} more',
         toastDismiss: 'Got it',
+        keepTitle: 'Retention',
+        keepHint: 'Older update records and log lines are removed automatically; 0 means keep forever. A rollback is kept together with the update it reverses',
+        keepHistory: 'History retention',
+        keepLog: 'Log retention',
+        keepDay: 'days',
+        keepForever: 'Keep forever',
+        cleanNow: 'Clean now',
+        cleaning: 'Cleaning…',
+        cleanDone: 'Removed {n} entries',
+        cleanNothing: 'Nothing to clean',
+        cleanFail: 'Cleanup failed',
         history: 'Update history',
         historyEmpty: 'No update has been installed yet',
         rollback: 'Roll back',
@@ -369,6 +391,17 @@ window.__ModuleLoader__.load({
         body: JSON.stringify(patch),
       })
       if (!response.ok) throw new Error('save ' + response.status)
+      return response.json()
+    }
+
+    /** 手动清理：服务端按当前保留期限删，回报删了多少。 */
+    async function cleanup() {
+      const response = await fetch(endpoint('cleanup') + langQuery(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: '{}',
+      })
+      if (!response.ok) throw new Error('cleanup ' + response.status)
       return response.json()
     }
 
@@ -617,6 +650,8 @@ window.__ModuleLoader__.load({
       const [rolling, setRolling] = useState('')
       const [rollHint, setRollHint] = useState('')
       const [confirming, setConfirming] = useState('')
+      const [cleaning, setCleaning] = useState(false)
+      const [cleanHint, setCleanHint] = useState('')
 
       const load = useCallback(async () => {
         setPhase('loading')
@@ -714,6 +749,25 @@ window.__ModuleLoader__.load({
           setRunning(false)
         }
       }, [running])
+
+      const doCleanup = useCallback(async () => {
+        if (cleaning) return
+        setCleaning(true)
+        setCleanHint('')
+        try {
+          const result = await cleanup()
+          const total = Number(result?.history ?? 0) + Number(result?.log ?? 0)
+          setCleanHint(total > 0 ? T.cleanDone.replace('{n}', String(total)) : T.cleanNothing)
+          try {
+            const next = await getState(LANG)
+            setState(next)
+          } catch {}
+        } catch {
+          setCleanHint(T.cleanFail)
+        } finally {
+          setCleaning(false)
+        }
+      }, [cleaning])
 
       const doRollback = useCallback(async (target) => {
         if (rolling !== '' || running) return
@@ -831,6 +885,40 @@ window.__ModuleLoader__.load({
           h('span', { style: S.label }, T.policy),
           h(SwitchRow, { label: T.allowMajor, hint: T.allowMajorHint, value: draft.allowMajor, onChange: (v) => patch('allowMajor', v) }),
           h(SwitchRow, { label: T.allowPrerelease, hint: T.allowPrereleaseHint, value: draft.allowPrerelease, onChange: (v) => patch('allowPrerelease', v) }),
+        ),
+        h('div', { style: S.card },
+          h('span', { style: S.label }, T.keepTitle),
+          h('span', { style: S.hint }, T.keepHint),
+          h(SelectRow, {
+            label: T.keepHistory,
+            value: String(draft.historyRetentionDays ?? 3),
+            onChange: (v) => patch('historyRetentionDays', Number(v)),
+            options: [
+              { value: '1', label: '1 ' + T.keepDay },
+              { value: '3', label: '3 ' + T.keepDay },
+              { value: '7', label: '7 ' + T.keepDay },
+              { value: '30', label: '30 ' + T.keepDay },
+              { value: '90', label: '90 ' + T.keepDay },
+              { value: '0', label: T.keepForever },
+            ],
+          }),
+          h(SelectRow, {
+            label: T.keepLog,
+            value: String(draft.logRetentionDays ?? 3),
+            onChange: (v) => patch('logRetentionDays', Number(v)),
+            options: [
+              { value: '1', label: '1 ' + T.keepDay },
+              { value: '3', label: '3 ' + T.keepDay },
+              { value: '7', label: '7 ' + T.keepDay },
+              { value: '30', label: '30 ' + T.keepDay },
+              { value: '90', label: '90 ' + T.keepDay },
+              { value: '0', label: T.keepForever },
+            ],
+          }),
+          h('div', { style: S.actions },
+            h('button', { type: 'button', style: S.btn, disabled: cleaning, onClick: () => void doCleanup() }, cleaning ? T.cleaning : T.cleanNow),
+            cleanHint ? h('span', { style: S.status }, cleanHint) : null,
+          ),
         ),
         h('div', { style: S.card },
           // 按钮和它动作的对象放在一起：读「上一次」的人最想做的事就是再跑一次。

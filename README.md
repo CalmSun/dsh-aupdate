@@ -63,6 +63,19 @@ https://github.com/CalmSun/dsh-aupdate
 | `maxPerCycle` | `0` | 一轮最多装几个，0 表示不限 |
 | `sessionIdleMinutes` | `2` | 会话静默多少分钟才算闲，0 表示只看子任务 |
 | `notify` | `true` | 发现可更新版本时在右下角提醒，列出插件与版本 |
+| `historyRetentionDays` | `3` | 更新记录保留天数，0 = 永久 |
+| `logRetentionDays` | `3` | 运行日志保留天数，0 = 永久 |
+
+## 定期清理
+
+更新记录和运行日志默认只留 **3 天**，每次定时检查前清一次，DSH 启动时也清一次；
+设置页另有「立即清理」。两个期限可分别选 1 / 3 / 7 / 30 / 90 天或「永久保留」。
+
+**回滚记录和它撤销的那条更新必须同进同退**：回滚判定是从回滚记录反推哪些更新已消费的，
+如果只按时间删、恰好删掉回滚记录而留下对应更新，那次已经回滚过的降级就会重新变得可回滚。
+所以清理按「更新 + 撤销它的回滚」分组，以组内最新的时间决定去留，整组一起删或一起留。
+
+日志按行首的 ISO 时间清理；解析不出时间的行一律保留，不因为格式不认识就删掉现场。
 
 ## 什么时候动手
 
@@ -291,6 +304,20 @@ A successful install clears the record.
 | `maxPerCycle` | `0` | Installs per cycle; 0 means no limit |
 | `sessionIdleMinutes` | `2` | Session must be quiet this long to count as idle; 0 judges by subagents only |
 | `notify` | `true` | Announce available updates in the bottom-right corner, with plugin names and versions |
+| `historyRetentionDays` | `3` | History retention in days; 0 = forever |
+| `logRetentionDays` | `3` | Log retention in days; 0 = forever |
+
+## Retention
+
+Update history and the run log keep **3 days** by default. Cleanup runs before every
+scheduled check and once at startup; the settings page also has an immediate Clean now
+button. Each retention can be set to 1 / 3 / 7 / 30 / 90 days or Keep forever.
+
+A rollback and the update it reverses are always removed together. Rollback eligibility is
+derived from rollback records — deleting only the rollback would make an already-reverted
+downgrade roll back again — so pruning groups them and decides by the newest timestamp in
+the group. Log lines are filtered by their leading ISO timestamp; lines without a parseable
+one are kept rather than lost.
 
 ### When it acts
 

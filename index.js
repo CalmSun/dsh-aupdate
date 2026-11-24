@@ -125,6 +125,7 @@ const LOG_FIELD_LABELS = {
     allowMajor: '跨大版本', allowPrerelease: '预发布', scheduleMode: '调度方式',
     dailyAt: '每天时刻', everyHours: '每几小时', everyDays: '每几天',
     suppressHours: '失败抑制', maxPerCycle: '单轮上限', sessionIdleMinutes: '会话静默',
+    historyRetentionDays: '更新记录保留', logRetentionDays: '运行日志保留',
   },
   en: {
     lang: 'display language', enabled: 'scheduled check', autoApply: 'auto-install',
@@ -134,6 +135,7 @@ const LOG_FIELD_LABELS = {
     scheduleMode: 'schedule', dailyAt: 'time of day', everyHours: 'every N hours',
     everyDays: 'every N days', suppressHours: 'failure suppression', maxPerCycle: 'per-cycle cap',
     sessionIdleMinutes: 'session idle',
+    historyRetentionDays: 'history retention', logRetentionDays: 'log retention',
   },
 }
 
@@ -187,6 +189,11 @@ function makeLogTemplates(lang) {
     toolScopeEnded: (msg) => (zh ? `工具作用域已结束：${msg}` : `Tool scope ended: ${msg}`),
     disabledBySettings: () => (zh ? '设置里已关闭自动更新，定时器待命' : 'Auto-update is off in settings; scheduler parked'),
     disabledByConfig: () => (zh ? '配置里已关闭自动更新，定时器待命，设置页仍然可用' : 'Auto-update is off in config; scheduler parked, settings page stays live'),
+    // 清理日志按对象报数，几个数字一处说完，免得刷三行。
+    cleaned: (kind, rows, days) => (zh
+      ? `清理${kind}：删掉 ${rows} 条超过 ${days} 天的`
+      : `Cleaned ${kind}: removed ${rows} entr${rows === 1 ? 'y' : 'ies'} older than ${days} day(s)`),
+    cleanSkipped: (kind) => (zh ? `${kind}没有需要清理的` : `Nothing to clean in ${kind}`),
     ready: (minutes, autoApply, hotReload) => (zh
       ? `已就绪：每 ${minutes} 分钟检查一次，自动安装=${onOff(autoApply)}，就地生效=${onOff(hotReload)}`
       : `Ready: every ${minutes} min, autoApply=${onOff(autoApply)}, hotReload=${onOff(hotReload)}`),
@@ -475,10 +482,26 @@ const OVERRIDEABLE = [
   'lang',
   // 效率闸门：一轮最多装几个、会话多静才算闲。
   'maxPerCycle', 'sessionIdleMinutes',
+  // 更新记录 / 运行日志 / 快照的保留期限（天）。0 = 永不清理。
+  'historyRetentionDays', 'logRetentionDays',
 ]
 
 /** 四种调度模式。minutes 是原来的「间隔 N 分钟」，其余照抄竞品。 */
 const SCHEDULE_MODES = ['minutes', 'hours', 'days', 'daily']
+
+/**
+ * 保留期限。默认 3 天——记录主要是「刚才装坏了什么」的现场，放太久只会占空间、
+ * 还会让更新记录栏翻很久。0 表示永不自动清理。
+ *
+ * 这是天数不是毫秒：设置页传 3 就是 3 天，写入时钳到 [0, 3650]。
+ */
+const RETENTION_CHOICES = [1, 3, 7, 30, 90, 0]
+
+function retentionOf(config, key, fallback) {
+  const value = Number(config?.[key])
+  if (!Number.isFinite(value)) return fallback
+  return Math.min(Math.max(Math.round(value), 0), 3650)
+}
 
 /**
  * 界面语言。auto = 跟随系统（中文环境给中文，其余给英文）。
@@ -502,6 +525,8 @@ const NUMBER_BOUNDS = {
   suppressHours: [0, 720],
   maxPerCycle: [0, 50],
   sessionIdleMinutes: [0, 120],
+  historyRetentionDays: [0, 3650],
+  logRetentionDays: [0, 3650],
 }
 
 let overrideCache = { stamp: null, value: {} }
@@ -664,6 +689,9 @@ function settingsOf(config) {
     maxPerCycle: numberSetting(config, 'maxPerCycle', 0, 0, 50),
     // 会话目录多少分钟内没有写入才算「闲」。0 = 不看会话写入，只看子任务。
     sessionIdleMinutes: numberSetting(config, 'sessionIdleMinutes', SESSION_IDLE_MINUTES, 0, 120),
+    // 更新记录 / 运行日志的保留天数。0 = 永不清理，默认 3 天。
+    historyRetentionDays: retentionOf(config, 'historyRetentionDays', 3),
+    logRetentionDays: retentionOf(config, 'logRetentionDays', 3),
     // 说明：这两个键不进 Config schema（见 OVERRIDEABLE 上的注释），
     // 所以只能通过设置页/覆盖层改，改坏了不会影响插件加载。
   }
@@ -1376,6 +1404,111 @@ function pruneSnapshots() {
   } catch {}
 }
 
+/**
+ * 按保留天数清理更新记录。
+ *
+ * 不能简单地「按 at 删老行」：pickRollbackTarget 是从回滚记录反推哪些更新已消费的。
+ * 若把回滚记录删了、留下对应更新行，那次已经回滚过的降级就会重新变得可回滚——
+ * 用户点一下，等于把一个已经被撤销的更新又执行一次。
+ *
+ * 所以按「一组」判新旧：一条更新 + 所有撤销它的回滚记录算一组，组内最新的时间
+ * 决定这一组去留。同时删，就不会留下半组。
+ */
+function pruneHistory(days, now) {
+  if (!(days > 0)) return 0
+  const rows = readHistory()
+  if (rows.length === 0) return 0
+  const cutoff = now.getTime() - days * 86400_000
+  const stampOf = (row) => {
+    const at = Date.parse(String(row?.at ?? ''))
+    return Number.isFinite(at) ? at : 0
+  }
+  const keyOf = (row) => [row?.name ?? '', row?.from ?? '', row?.to ?? '', row?.profile ?? ''].join('\u0000')
+
+  // 组 key 用「被更新的那次」的 (包, from, to, profile)。
+  // 回滚行的 from/to 是反的（from=新版本, to=旧版本），换回来就落到同一个 key。
+  // 这样一条更新和撤销它的回滚一定同进同退，不会出现半组。
+  const groups = new Map()
+  for (const row of rows) {
+    const isRollback = row?.tag === 'rollback'
+    const key = keyOf(isRollback
+      ? { name: row.name, from: row.to, to: row.from, profile: row.profile }
+      : row)
+    const group = groups.get(key) ?? { rows: [], newest: 0 }
+    group.rows.push(row)
+    group.newest = Math.max(group.newest, stampOf(row))
+    groups.set(key, group)
+  }
+
+  const survivors = []
+  for (const group of groups.values()) {
+    if (group.newest >= cutoff) survivors.push(...group.rows)
+  }
+  const removed = rows.length - survivors.length
+  if (removed > 0) {
+    // 保持原有顺序（新→旧），组被打散过，按时间重排一次即可。
+    survivors.sort((a, b) => stampOf(b) - stampOf(a))
+    saveHistory(survivors)
+  }
+  return removed
+}
+
+/**
+ * 按保留天数清理运行日志。
+ *
+ * 日志是「一行一条」的纯文本，每行以 [ISO 时间] 开头。逐行解析时间，只保留
+ *  cutoff 之后的行；解析不出时间的行（旧格式里偶有）一律保留——宁可多留，
+ *  不因为格式不认识就删掉用户的现场。
+ *
+ * 写之前先 flush，否则待写队列里的新行还没落盘，写完被旧内容覆盖。
+ */
+function pruneLog(days, now) {
+  if (!(days > 0)) return 0
+  try {
+    flushLogNow()
+  } catch {}
+  const file = logPath()
+  let raw
+  try {
+    raw = readFileSync(file, 'utf8')
+  } catch {
+    return 0
+  }
+  const cutoff = now.getTime() - days * 86400_000
+  const lines = raw.split('\n')
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  const kept = []
+  let removed = 0
+  for (const line of lines) {
+    const match = /^\[([^\]]+)\]/u.exec(line)
+    if (match === null) {
+      kept.push(line)
+      continue
+    }
+    const at = Date.parse(match[1])
+    if (Number.isFinite(at) && at < cutoff) removed += 1
+    else kept.push(line)
+  }
+  if (removed === 0) return 0
+  try {
+    writeFileSync(file, kept.length > 0 ? kept.join('\n') + '\n' : '', 'utf8')
+  } catch {
+    return 0
+  }
+  return removed
+}
+
+/** 一次清理：记录、日志、快照目录。按各自设置独立开关，0 表示不动。 */
+function pruneAll(settings, now) {
+  const historyDays = settings.historyRetentionDays
+  const logDays = settings.logRetentionDays
+  if (!(historyDays > 0) && !(logDays > 0)) return
+  const removedHistory = pruneHistory(historyDays, now)
+  const removedLog = pruneLog(logDays, now)
+  if (removedHistory > 0) writeLog('cleaned', ['更新记录', removedHistory, historyDays])
+  if (removedLog > 0) writeLog('cleaned', ['运行日志', removedLog, logDays])
+}
+
 function profileLockPath(profileDir) {
   return join(profileDir, '.aupdate-install.lock')
 }
@@ -2021,6 +2154,11 @@ function settingsSnapshot(config, ctxRef, lang) {
     failurePath: failurePath(),
     // 动手前留的现场：设置页把它显示出来，出问题时有地方可查。
     snapshotPath: snapshotRoot(),
+    // 保留期限也放在 state 里：设置页显示当前选择，并且按它算出「下次会清掉什么」。
+    retention: {
+      historyDays: settings.historyRetentionDays,
+      logDays: settings.logRetentionDays,
+    },
     // 为什么这一轮没动手：设置页把这两个直接显示出来，用户不用翻日志猜。
     // 尤其 sessionIdleMinutes —— 它太短会挡住大半夜的更新，太长又不该挡，
     // 得让人一眼看到「现在到底算不算闲」。
@@ -2103,6 +2241,25 @@ function registerRoutes(scope, ctxRef) {
           sendJson(res, outcome.ok ? 200 : 409, { ...outcome, reason: renderReason(outcome.reason, url.searchParams.get('lang')) })
           return
         }
+        if (suffix === '/cleanup') {
+          // 用户手动点「立即清理」：用当前设置跑一遍，回报删了多少条。
+          const live = settingsOf(ctxRef.config)
+          const now = new Date()
+          const removedHistory = pruneHistory(live.historyRetentionDays, now)
+          const removedLog = pruneLog(live.logRetentionDays, now)
+          if (removedHistory > 0) writeLog('cleaned', ['更新记录', removedHistory, live.historyRetentionDays])
+          if (removedLog > 0) writeLog('cleaned', ['运行日志', removedLog, live.logRetentionDays])
+          const lang = logLangOf(url.searchParams.get('lang'))
+          sendJson(res, 200, {
+            history: removedHistory,
+            log: removedLog,
+            days: { history: live.historyRetentionDays, log: live.logRetentionDays },
+            message: removedHistory === 0 && removedLog === 0
+              ? LOG_TEMPLATES[lang].cleanSkipped('更新记录 / 运行日志')
+              : LOG_TEMPLATES[lang].cleaned(removedHistory + removedLog > 0 ? '记录与日志' : '', removedHistory + removedLog, Math.max(live.historyRetentionDays, live.logRetentionDays)),
+          })
+          return
+        }
         if (suffix === '/run') {
           const body = await readBody(req)
           const mode = body?.mode === 'check' ? 'check' : 'update'
@@ -2140,7 +2297,7 @@ function registerRoutes(scope, ctxRef) {
   }
 }
 
-export { compareVersions, upgradeVerdict, pickRollbackTarget, readHistory, historyPath, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides, takeProfileLock, releaseProfileLock, sessionAgeMinutes, activityReasons, settingsSnapshot, snapshotProfile, snapshotRoot, pruneSnapshots, nextDelayMinutes, readLogTail, logPath }
+export { compareVersions, upgradeVerdict, pickRollbackTarget, readHistory, historyPath, distTagFor, cliRunner, dependencyList, installedVersion, registryTags, hotApply, runCycle, settingsOf, readOverrides, writeOverrides, takeProfileLock, releaseProfileLock, sessionAgeMinutes, activityReasons, settingsSnapshot, snapshotProfile, snapshotRoot, pruneSnapshots, nextDelayMinutes, readLogTail, logPath, pruneAll, pruneHistory, pruneLog }
 
 export function apply(ctx, config) {
   const ctxRef = { ctx, config }
@@ -2218,6 +2375,23 @@ export function apply(ctx, config) {
   }
 
   /**
+   * 定期清理。
+   *
+   * 放在每次定时器触发前，而不是另起一个定时器：调度器本来就按当前设置走，
+   * 清理跟着它走就不会出现「两个节奏各跑各的、改了设置只有一个生效」。
+   * 启动时也跑一次（见下面的 pruneAll(settings, new Date())），保证长时间不开
+   * DSH 的用户一进来就看不到过期记录。
+   */
+  const runCleanup = () => {
+    try {
+      pruneAll(settingsOf(ctxRef.config), new Date())
+    } catch (error) {
+      writeLog('routeFailed', [oneLine(error?.message ?? error, 200)])
+    }
+  }
+  runCleanup()
+
+  /**
    * 定时器改成「每次重排」，而不是一次性 setInterval。
    *
    * setInterval 把间隔焊死在注册那一刻：用户在设置页把间隔从 1440 分钟改成 60，
@@ -2258,6 +2432,7 @@ export function apply(ctx, config) {
     ctxRef.pendingMinutes = minutes
     const handle = setTimeout(() => {
       scheduled = null
+      runCleanup()
       runSafely('update')
       scheduleNext()
     }, Math.max(minutes, 0) * 60000)
