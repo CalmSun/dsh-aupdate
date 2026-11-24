@@ -83,6 +83,24 @@ window.__ModuleLoader__.load({
         logsAutoHint: '每 5 秒拉一次，正在排查时开着',
         logsRotated: '日志已超过 1MB，旧内容在 .old 里',
         logsTotal: '共 {n} 行',
+        logsNewest: '最新的在最上面',
+        notify: '发现更新时提醒我',
+        notifyHint: '在界面右下角弹一条提醒，列出可更新的插件和「当前 → 新」版本；同一批更新只提醒一次',
+        pkgsExclude: '不自动更新的包',
+        pkgsExcludeHint: '勾上的插件永远不自动更新；一个都不勾表示全部参与自动更新',
+        pkgsAllow: '只更新这些包',
+        pkgsAllowHint: '勾上后只更新勾选的插件；一个都不勾表示不启用这条白名单',
+        pkgsSearch: '搜索插件名',
+        pkgsAll: '全选',
+        pkgsNone: '清空',
+        pkgsEmpty: '这个 profile 里没有可自动更新的插件',
+        pkgsCount: '已勾选 {n} 个',
+        pkgsNotInstalled: '未安装',
+        pkgsNoMatch: '没有匹配的插件',
+        pageLabel: '插件更新',
+        toastTitle: '{n} 个插件可以更新',
+        toastMore: '还有 {n} 个',
+        toastDismiss: '知道了',
         history: '更新记录',
         historyEmpty: '还没有安装过任何更新',
         rollback: '回滚',
@@ -168,6 +186,24 @@ window.__ModuleLoader__.load({
         logsAutoHint: 'Polls every 5s; turn it on while debugging',
         logsRotated: 'Log passed 1MB; older content is in .old',
         logsTotal: '{n} lines',
+        logsNewest: 'newest first',
+        notify: 'Tell me when updates are found',
+        notifyHint: 'Pops a notice in the bottom-right corner listing the plugins that can update and their current → new versions; each batch is announced once',
+        pkgsExclude: 'Never auto-update',
+        pkgsExcludeHint: 'Checked plugins are never updated automatically; nothing checked means everything takes part',
+        pkgsAllow: 'Only update these',
+        pkgsAllowHint: 'When anything is checked, only those plugins update; nothing checked disables this allow-list',
+        pkgsSearch: 'Search plugin names',
+        pkgsAll: 'All',
+        pkgsNone: 'None',
+        pkgsEmpty: 'This profile has no plugins that can auto-update',
+        pkgsCount: '{n} selected',
+        pkgsNotInstalled: 'not installed',
+        pkgsNoMatch: 'Nothing matches',
+        pageLabel: 'Plugin updates',
+        toastTitle: '{n} plugin(s) can update',
+        toastMore: 'and {n} more',
+        toastDismiss: 'Got it',
         history: 'Update history',
         historyEmpty: 'No update has been installed yet',
         rollback: 'Roll back',
@@ -314,6 +350,12 @@ window.__ModuleLoader__.load({
       logBox: { margin: 0, padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.22)', background: 'rgba(128,128,128,0.06)', fontSize: '11.5px', lineHeight: 1.55, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', maxHeight: '260px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
       logTime: { opacity: 0.5 },
       logText: {},
+      // 勾选清单：包名可能很长（@scope/name），要能截断，版本靠右对齐。
+      pkgList: { display: 'flex', flexDirection: 'column', gap: '1px', maxHeight: '240px', overflow: 'auto', border: '1px solid rgba(128,128,128,0.22)', borderRadius: '6px', padding: '4px' },
+      pkgRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '2px 4px', borderRadius: '4px', cursor: 'pointer' },
+      pkgName: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+      pkgVer: { opacity: 0.5, fontSize: '11px', marginLeft: 'auto', flexShrink: 0 },
+      search: { padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '12.5px' },
     }
 
     function Toggle(props) {
@@ -427,6 +469,73 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 勾选清单。
+     *
+     * 原来是两个 textarea，让用户一行一个包名敲进去。难用在两处：包名得照着
+     * node_modules 手抄，抄错一个字符这条规则就永远不生效、也不会报错；而且看不出
+     * 自己填的到底是不是想排除的那个。改成从 /state 拿到的已装清单直接勾。
+     */
+    function PackagePicker(props) {
+      const { packages, selected, onChange } = props
+      const [query, setQuery] = useState('')
+      const chosen = useMemo(() => new Set(Array.isArray(selected) ? selected : []), [selected])
+      const all = useMemo(() => (Array.isArray(packages) ? packages : []), [packages])
+      const rows = useMemo(() => {
+        const text = query.trim().toLowerCase()
+        if (text === '') return all
+        return all.filter((item) => String(item.name).toLowerCase().includes(text))
+      }, [all, query])
+
+      const commit = (next) => onChange(Array.from(next).sort())
+
+      const toggle = (name) => {
+        const next = new Set(chosen)
+        if (next.has(name)) next.delete(name)
+        else next.add(name)
+        commit(next)
+      }
+
+      // 全选/清空只作用于当前筛选出来的行：搜索之后再点「全选」，
+      // 用户的意思是「把搜到的都勾上」，不是把看不见的也一并改掉。
+      const setVisible = (on) => {
+        const next = new Set(chosen)
+        for (const item of rows) {
+          if (on) next.add(item.name)
+          else next.delete(item.name)
+        }
+        commit(next)
+      }
+
+      if (all.length === 0) return h('span', { style: S.status }, T.pkgsEmpty)
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+        h('div', { style: S.actions },
+          h('input', {
+            type: 'search',
+            value: query,
+            placeholder: T.pkgsSearch,
+            onChange: (event) => setQuery(event.target.value),
+            style: { ...S.search, flex: '1 1 160px' },
+          }),
+          h('button', { type: 'button', style: S.btn, onClick: () => setVisible(true) }, T.pkgsAll),
+          h('button', { type: 'button', style: S.btn, onClick: () => setVisible(false) }, T.pkgsNone),
+          h('span', { style: S.hint }, T.pkgsCount.replace('{n}', String(chosen.size))),
+        ),
+        h('div', { style: S.pkgList },
+          rows.length === 0
+            ? h('span', { style: { ...S.status, padding: '4px' } }, T.pkgsNoMatch)
+            : rows.map((item) => h('label', { key: item.name, style: S.pkgRow, title: item.name },
+                h(Toggle, { checked: chosen.has(item.name), onChange: () => toggle(item.name) }),
+                h('span', { style: S.pkgName }, item.name),
+                item.version === ''
+                  ? h('span', { style: S.pkgVer }, T.pkgsNotInstalled)
+                  : h('span', { style: S.pkgVer }, item.version),
+              )),
+        ),
+      )
+    }
+
     function AutoUpdateCard() {
       const [state, setState] = useState(null)
       const [draft, setDraft] = useState(null)
@@ -460,7 +569,7 @@ window.__ModuleLoader__.load({
 
       const dirty = useMemo(() => {
         if (state === null || draft === null) return false
-        const keys = ['enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours', 'maxPerCycle', 'sessionIdleMinutes']
+        const keys = ['enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'notify', 'intervalMinutes', 'firstDelayMinutes', 'allowMajor', 'allowPrerelease', 'scheduleMode', 'dailyAt', 'everyHours', 'everyDays', 'suppressHours', 'maxPerCycle', 'sessionIdleMinutes']
         for (const key of keys) {
           if (draft[key] !== state.settings[key]) return true
         }
@@ -481,6 +590,7 @@ window.__ModuleLoader__.load({
             hotReload: draft.hotReload,
             checkOnStart: draft.checkOnStart,
             idleOnly: draft.idleOnly,
+            notify: draft.notify,
             intervalMinutes: draft.intervalMinutes,
             firstDelayMinutes: draft.firstDelayMinutes,
             exclude: draft.exclude,
@@ -579,6 +689,7 @@ window.__ModuleLoader__.load({
           h(SwitchRow, { label: T.hotReload, hint: T.hotReloadHint, value: draft.hotReload, onChange: (v) => patch('hotReload', v), disabled: !draft.enabled }),
           h(SwitchRow, { label: T.checkOnStart, value: draft.checkOnStart, onChange: (v) => patch('checkOnStart', v), disabled: !draft.enabled }),
           h(SwitchRow, { label: T.idleOnly, hint: T.idleOnlyHint, value: draft.idleOnly, onChange: (v) => patch('idleOnly', v), disabled: !draft.enabled }),
+          h(SwitchRow, { label: T.notify, hint: T.notifyHint, value: draft.notify, onChange: (v) => patch('notify', v) }),
         ),
         h('div', { style: S.card },
           h(SelectRow, {
@@ -613,15 +724,13 @@ window.__ModuleLoader__.load({
           h(NumberRow, { label: T.sessionIdle, hint: T.sessionIdleHint, value: draft.sessionIdleMinutes, min: 0, max: 120, onChange: (v) => patch('sessionIdleMinutes', v), disabled: !draft.enabled || !draft.idleOnly }),
           gateLine(state),
           h('div', { style: S.labelBox },
-            h('span', { style: S.label }, T.exclude),
-            h('span', { style: S.hint }, T.excludeHint),
+            h('span', { style: S.label }, T.pkgsExclude),
+            h('span', { style: S.hint }, T.pkgsExcludeHint),
           ),
-          h('textarea', {
-            value: (draft.exclude || []).join('\n'),
-            disabled: !draft.enabled,
-            onChange: (event) => patch('exclude', event.target.value.split('\n').map((line) => line.trim()).filter((line) => line !== '')),
-            style: S.area,
-            spellCheck: false,
+          h(PackagePicker, {
+            packages: state?.packages,
+            selected: draft.exclude,
+            onChange: (list) => patch('exclude', list),
           }),
         ),
         // 策略与范围：白名单 / 预发布 / 跨大版本，决定「什么算可以装」。
@@ -630,14 +739,13 @@ window.__ModuleLoader__.load({
           h(SwitchRow, { label: T.allowMajor, hint: T.allowMajorHint, value: draft.allowMajor, onChange: (v) => patch('allowMajor', v) }),
           h(SwitchRow, { label: T.allowPrerelease, hint: T.allowPrereleaseHint, value: draft.allowPrerelease, onChange: (v) => patch('allowPrerelease', v) }),
           h('div', { style: S.labelBox },
-            h('span', { style: S.label }, T.allow),
-            h('span', { style: S.hint }, T.allowHint),
+            h('span', { style: S.label }, T.pkgsAllow),
+            h('span', { style: S.hint }, T.pkgsAllowHint),
           ),
-          h('textarea', {
-            value: (draft.allow || []).join('\n'),
-            onChange: (event) => patch('allow', event.target.value.split('\n').map((line) => line.trim()).filter((line) => line !== '')),
-            style: S.area,
-            spellCheck: false,
+          h(PackagePicker, {
+            packages: state?.packages,
+            selected: draft.allow,
+            onChange: (list) => patch('allow', list),
           }),
         ),
         h('div', { style: S.actions },
@@ -724,14 +832,16 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer)
       }, [auto])
 
-      const rows = data?.rows ?? []
+      // 后端按追加顺序给（老的在前面），这里渲染时倒过来：最近发生的事在最上面，
+      // 打开这一栏先看到的应该是刚才装了什么，而不是要滚到底才看见。
+      const rows = (data?.rows ?? []).slice().reverse()
       const total = data?.total ?? 0
 
       return h('div', { style: S.card },
         h('div', { style: S.row },
           h('div', { style: S.labelBox },
             h('span', { style: S.label }, T.logs),
-            h('span', { style: S.hint }, T.logsHint),
+            h('span', { style: S.hint }, T.logsHint + ' · ' + T.logsNewest),
           ),
           h('div', { style: S.actions },
             h('select', {
@@ -793,9 +903,114 @@ window.__ModuleLoader__.load({
       return h('span', { style: { fontSize: '12px', opacity: 0.68 } }, text)
     }
 
+    /* ── 更新提醒 ────────────────────────────────────────────────────────
+     *
+     * 定时更新最容易出的事，是它在后台悄悄装完，用户根本不知道装了什么。
+     * 这里轮询 /state，发现 lastRun 里有可更新项就在右下角浮一条提醒。
+     *
+     * 用原生 DOM 而不是再注册一个槽位：提醒要能在任何页面出现（会话、插件页、
+     * 设置页），而槽位只在宿主页挂载时才渲染。浮层还得幂等——同一批更新重复弹
+     * 三次比不弹更烦，所以把「已提醒过的批次」签名记进 localStorage。
+     */
+    const NOTIFIED_KEY = 'dsh-aupdate:notified'
+
+    function notifiedMark() {
+      try { return window.localStorage.getItem(NOTIFIED_KEY) || '' } catch { return '' }
+    }
+
+    function markNotified(sig) {
+      try { window.localStorage.setItem(NOTIFIED_KEY, sig) } catch {}
+    }
+
+    let toastOpen = false
+
+    function showUpdateToast(updates) {
+      if (toastOpen) return
+      const doc = typeof document === 'undefined' ? null : document
+      if (doc === null || doc.body === null) return
+      toastOpen = true
+      const box = doc.createElement('div')
+      box.setAttribute('data-dsh-aupdate', 'toast')
+      box.style.cssText = [
+        'position:fixed', 'right:16px', 'bottom:16px', 'z-index:2147483000',
+        'max-width:340px', 'padding:12px 14px', 'border-radius:10px',
+        'background:rgba(28,28,30,0.97)', 'color:#f4f4f5',
+        'box-shadow:0 8px 28px rgba(0,0,0,0.38)', 'border:1px solid rgba(255,255,255,0.14)',
+        'font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif',
+        'display:flex', 'flex-direction:column', 'gap:8px',
+      ].join(';')
+
+      const title = doc.createElement('div')
+      title.textContent = T.toastTitle.replace('{n}', String(updates.length))
+      title.style.cssText = 'font-weight:600'
+      box.appendChild(title)
+
+      const list = doc.createElement('div')
+      list.style.cssText = 'display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto'
+      for (const item of updates.slice(0, 8)) {
+        const row = doc.createElement('div')
+        row.textContent = item.name + '  ' + (item.current || '?') + ' → ' + (item.target || '?')
+        row.style.cssText = 'font-size:12px;opacity:0.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
+        list.appendChild(row)
+      }
+      box.appendChild(list)
+
+      if (updates.length > 8) {
+        const more = doc.createElement('div')
+        more.textContent = T.toastMore.replace('{n}', String(updates.length - 8))
+        more.style.cssText = 'font-size:11.5px;opacity:0.6'
+        box.appendChild(more)
+      }
+
+      const close = doc.createElement('button')
+      close.type = 'button'
+      close.textContent = T.toastDismiss
+      close.style.cssText = 'align-self:flex-end;padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.25);background:transparent;color:inherit;cursor:pointer;font-size:12px'
+      const dismiss = () => {
+        toastOpen = false
+        try { box.remove() } catch {}
+      }
+      close.addEventListener('click', dismiss)
+      box.appendChild(close)
+      doc.body.appendChild(box)
+      // 不点也不会一直挂着：15 秒后自己消失，省得挡住下面的界面。
+      setTimeout(dismiss, 15000)
+    }
+
+    function startUpdateNotifier() {
+      let stopped = false
+      let timer = null
+      const tick = async () => {
+        if (stopped) return
+        try {
+          const state = await getState()
+          if (state?.settings?.notify !== false) {
+            const updates = Array.isArray(state?.lastRun?.updates) ? state.lastRun.updates : []
+            if (updates.length > 0) {
+              const sig = updates.map((item) => item.name + '@' + (item.target || '')).sort().join('|')
+              if (sig !== notifiedMark()) {
+                markNotified(sig)
+                showUpdateToast(updates)
+              }
+            }
+          }
+        } catch {
+          // 读不到就等下一轮，提醒失败不该写日志也不该报错。
+        }
+        if (!stopped) timer = setTimeout(() => void tick(), 60000)
+      }
+      void tick()
+      return () => {
+        stopped = true
+        if (timer !== null) clearTimeout(timer)
+      }
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
+        // 提醒跟着插件一起上、一起卸：ctx.effect 收的是清理函数。
+        if (typeof ctx.effect === 'function') ctx.effect(startUpdateNotifier, 'dsh-aupdate: update notices')
         // key 的格式是「包名#条目id」：本插件在 cordis.patch.yml 里的条目 id 就是包名本身，
         // 和 dsh-ops 的 dsh-ops#dsh-ops 一样。写成 #auto-update 之类是挂不上的。
         ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
@@ -808,6 +1023,15 @@ window.__ModuleLoader__.load({
           name: 'plugins.bundle.config',
           key: NS,
         }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
+
+        // 设置 → 插件更新：挂成独立的一页，写法照抄 dsh-our-free-model-balance-zxp
+        // 的「渠道余额」。原来只有插件页里那张卡，想改策略得先去插件页翻它。
+        ctx.slots.inject('settings.section', () => ctx.slots.register({
+          name: 'settings.section',
+          id: NS,
+          order: 36,
+          label: () => T.pageLabel,
+        }, () => h(AutoUpdateCard)))
       },
     }
   },

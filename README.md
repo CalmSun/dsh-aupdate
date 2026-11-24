@@ -63,6 +63,7 @@ https://github.com/CalmSun/dsh-aupdate
 | `hotReload` | `true` | 装完就地生效，否则等重启 |
 | `maxPerCycle` | `0` | 一轮最多装几个，0 表示不限 |
 | `sessionIdleMinutes` | `2` | 会话静默多少分钟才算闲，0 表示只看子任务 |
+| `notify` | `true` | 发现可更新版本时在右下角提醒，列出插件与版本 |
 
 ## 什么时候动手
 
@@ -118,11 +119,24 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 ## 设置页
 
 插件页里的这一行有摘要和整页两种视图，保存后立刻按新节奏重排，不用重启。
+同一份界面还挂在**设置 → 插件更新**里，是独立的一页，不用先去插件页翻这张卡。
 读写走 `/api/dsh-aupdate/{state,run,rollback,logs}`。
+
+### 勾选插件，而不是手写包名
+
+`exclude` / `allow` 原来要一行一个包名地敲。现在整页里是两张勾选清单，直接列出
+这个 profile 实际装着的插件和各自的已装版本：
+
+- **不自动更新的包**：勾上的永远不参与自动更新
+- **只更新这些包**：勾上后只更新勾中的；一个都不勾表示不启用这条白名单
+- 能按名字搜索，`/state` 里带着 `packages`（名字、版本、当前是否被排除/在白名单里）
+- 「全选 / 清空」只作用于当前筛选出来的行——搜完再点全选，意思是把搜到的都勾上
+- 白名单里留着已卸载的包名时照样列出来并标「未安装」，否则那条规则再也删不掉
 
 整页最下面是**运行日志**卡片，直接看插件最近写了什么，不用再去翻文件：
 
 - 可选显示最近 100 / 200 / 500 / 1000 行，默认 200
+- **最新的在最上面**：按时间倒序渲染，刚装了什么不用滚到底
 - 打开「自动刷新」后每 5 秒拉一次，正在排查时开着；关掉就完全不动
 - 读之前会先把待写队列刷下去，所以刚点完检查，那几行马上就在里面
 - 时间戳按本地时区显示，文件超过 1MB 轮转给一句提示，另附总行数
@@ -134,6 +148,18 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 `requestRejection`），没通过就回 401/403，拿不到 `connection` 服务或它抛错时
 一律 503。不用「只认回环地址」这种判据：浏览器里任何网页都能向 127.0.0.1 发请求。
 `/state` 和 `/logs` 也照样要过，因为它们分别会吐全量设置和读磁盘上的日志文件。
+
+## 更新提醒
+
+发现可更新版本时，界面右下角浮一条提醒，列出插件名和「当前 → 新」版本；超过 8 条
+时余下给一句「还有 N 个」，15 秒后自动消失。
+
+同一批更新只提醒一次：这批更新的签名记在 `localStorage` 里，刷新页面不会重复弹。
+关掉「发现更新时提醒我」就完全不弹，日志和设置页照常记录——提醒只是别让它装完你
+还不知道，不是唯一的告知渠道。
+
+提醒用的是原生 DOM 浮层，不是新的槽位：槽位只在宿主页挂载时才渲染，而提醒要能在
+会话、插件页、设置页都出现。
 
 ## 效率
 
@@ -242,6 +268,7 @@ A successful install clears the record.
 | `hotReload` | `true` | Apply in place after install instead of waiting for a restart |
 | `maxPerCycle` | `0` | Installs per cycle; 0 means no limit |
 | `sessionIdleMinutes` | `2` | Session must be quiet this long to count as idle; 0 judges by subagents only |
+| `notify` | `true` | Announce available updates in the bottom-right corner, with plugin names and versions |
 
 ### When it acts
 
@@ -301,6 +328,27 @@ a rollback, collapse into the newest one. Otherwise a single failing version wou
 pile up one row per cycle and bury the entry you actually want to return to.
 `1.0 → 1.1` and `1.0 → 1.2` are different events and stay separate.
 
+### Settings page
+
+The row in the plugins page shows a summary and a full page; saving re-schedules
+immediately without a restart. The same UI is also its own page under
+**Settings → Plugin updates**, so it is not buried in the plugins page.
+
+`exclude` and `allow` are checkbox lists of the plugins actually installed in this
+profile, with their installed versions, instead of two textareas you had to type
+package names into. Search narrows the list; Select all / Clear only touch the rows
+currently shown, so "search, then select all" means what you expect. A name left in the
+allow-list after its package was uninstalled still appears, labelled "not installed",
+because otherwise that rule could never be removed.
+
+### Update notices
+
+When a check finds updates, a notice appears in the bottom-right corner listing each
+plugin and its current → new version; past eight it adds "and N more", and it closes
+itself after 15 seconds. Each batch is announced once — the signature is kept in
+`localStorage` — and turning "Tell me when updates are found" off silences it entirely
+while the log and settings page keep recording.
+
 ### Tool
 
 `plugin_updater` with an `action` argument: `check`, `update`, `state`, or `history`.
@@ -319,6 +367,9 @@ pile up one row per cycle and bury the entry you actually want to return to.
 
 `~/.dsh/aupdate.log`, flushed on write and rotated when it grows. Setting overrides
 live in `~/.dsh/aupdate-settings.json`.
+
+The page renders the log newest first, so whatever just happened is at the top of the
+box instead of at the bottom of a scroll.
 
 You can read this file straight from the settings page (see above). Point it
 elsewhere with `DSH_AUTO_UPDATE_LOG`.

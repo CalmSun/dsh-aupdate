@@ -219,7 +219,7 @@ function settingsPath() {
 }
 
 const OVERRIDEABLE = [
-  'enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly',
+  'enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'notify',
   'intervalMinutes', 'firstDelayMinutes', 'exclude',
   'allow', 'allowMajor', 'allowPrerelease',
   // 调度：四种节奏 + 失败抑制时长。这些键不写进 Config schema，
@@ -373,6 +373,9 @@ function settingsOf(config) {
     hotReload: booleanSetting(config, 'hotReload', true),
     checkOnStart: booleanSetting(config, 'checkOnStart', true),
     idleOnly: booleanSetting(config, 'idleOnly', true),
+    // 发现可更新版本时是否弹出提醒。默认开着：定时更新最容易出的事，是它一直在
+    // 后台装，用户根本不知道装了什么、装到哪一版。
+    notify: booleanSetting(config, 'notify', true),
     intervalMinutes: numberSetting(config, 'intervalMinutes', 1440, 10, 10080),
     firstDelayMinutes: numberSetting(config, 'firstDelayMinutes', 5, 0, 1440),
     exclude: stringList(config?.exclude),
@@ -711,6 +714,47 @@ function dependencyList(profileDir, exclude, allow = []) {
     if (only.size > 0 && !only.has(pkgName)) continue
     rows.push({ name: pkgName, spec })
   }
+  return rows
+}
+
+/**
+ * 设置页的勾选清单。
+ *
+ * dependencyList 会按 exclude/allow 过滤，而那正是勾选框要展示的东西——被排除的包
+ * 也必须出现在列表里，否则一旦勾上就再也取消不掉。所以这里不过滤，只给每一项
+ * 标注「当前是否被排除 / 是否在白名单里」，让页面自己决定勾没勾。
+ *
+ * 白名单里还可能留着已经卸载的包名（改过 dependencies 之后就会这样）。它们没有
+ * 对应的勾选项，但不能悄悄丢掉，否则用户再也没有入口删掉这条规则。
+ */
+function packageChoices(profileDir, settings) {
+  const manifest = readJson(join(profileDir, 'package.json'))
+  const deps = manifest?.dependencies
+  if (deps === null || typeof deps !== 'object') return []
+  const skip = new Set(settings.exclude)
+  const only = new Set(settings.allow)
+  const known = new Set()
+  const rows = []
+  for (const [name, spec] of Object.entries(deps)) {
+    if (typeof spec !== 'string') continue
+    if (/^(link|file|workspace|portal):/iu.test(spec)) continue
+    if (!NPM_NAME_RE.test(name)) continue
+    known.add(name)
+    const version = installedVersion(profileDir, name, spec)
+    rows.push({
+      name,
+      version: typeof version === 'string' ? version : '',
+      excluded: skip.has(name),
+      allowed: only.has(name),
+    })
+  }
+  for (const name of only) {
+    if (known.has(name)) continue
+    rows.push({ name, version: '', excluded: skip.has(name), allowed: true })
+  }
+  // 不能直接用 localeCompare：它的结果跟着系统区域变，同一个 profile 在不同机器上
+  // 排出来的顺序会不一样，页面顺序跳来跳去会让人以为列表变了。
+  rows.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   return rows
 }
 
@@ -1641,6 +1685,15 @@ function settingsSnapshot(config, ctxRef) {
       reload: lastRun.reload,
       snapshot: lastRun.snapshot ?? '',
     },
+    // 设置页把已装插件列成勾选框，用户勾就行，不用照着手抄包名。
+    // 每项带上已装版本，勾的时候能看见自己勾的是哪个版本。
+    packages: (() => {
+      try {
+        return packageChoices(profileDirOf(ctxRef?.ctx ?? null), settings)
+      } catch {
+        return []
+      }
+    })(),
     path: settingsPath(),
     history: readHistory().slice(0, 40),
     historyPath: historyPath(),
