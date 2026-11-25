@@ -8,6 +8,17 @@ window.__ModuleLoader__.load({
     const NS = 'dsh-aupdate'
     const API = 'api/dsh-aupdate'
 
+    /**
+     * 「关于 aupdate」用到的项目链接集中一处。
+     *
+     * 外链一律 target=_blank + rel=noopener noreferrer：设置页可能跑在受限
+     * webview 里，noopener 防止新页反向控制本页。
+     */
+    const REPO_URL = 'https://github.com/CalmSun/dsh-aupdate'
+    const CHANGELOG_URL = REPO_URL + '/releases'
+    const ISSUES_URL = REPO_URL + '/issues/new'
+    const STARS_URL = REPO_URL + '/stargazers'
+
     const COPY = {
       zh: {
         title: '插件自动更新',
@@ -127,6 +138,20 @@ window.__ModuleLoader__.load({
         policy: '更新策略',
         minutes: '分钟',
         scope: '这些设置只影响本机这个 profile',
+        about: '关于 aupdate',
+        aboutVersion: '版本',
+        aboutChangelog: '更新日志',
+        aboutChangelogLink: '查看更新日志',
+        aboutRepo: '源码仓库',
+        aboutFeedback: '反馈问题',
+        aboutFeedbackLink: '提交问题',
+        aboutStar: '点个星',
+        aboutStarHint: '在 GitHub 上点 Star，让更多人看到',
+        aboutShare: '分享',
+        aboutShareHint: '复制项目地址，分享给朋友',
+        aboutShareDone: '项目地址已复制',
+        aboutShareFail: '复制失败，请手动复制项目地址',
+        aboutProject: '项目地址',
       },
       en: {
         title: 'Plugin auto-update',
@@ -246,6 +271,20 @@ window.__ModuleLoader__.load({
         policy: 'Update policy',
         min: 'min',
         scope: 'These settings apply to this profile only',
+        about: 'About aupdate',
+        aboutVersion: 'Version',
+        aboutChangelog: 'Changelog',
+        aboutChangelogLink: 'View changelog',
+        aboutRepo: 'Source code',
+        aboutFeedback: 'Report an issue',
+        aboutFeedbackLink: 'Open an issue',
+        aboutStar: 'Star',
+        aboutStarHint: 'Star on GitHub to help others find it',
+        aboutShare: 'Share',
+        aboutShareHint: 'Copy the project link to share',
+        aboutShareDone: 'Project link copied',
+        aboutShareFail: 'Could not copy; please copy the link manually',
+        aboutProject: 'Project URL',
       },
     }
 
@@ -464,6 +503,10 @@ window.__ModuleLoader__.load({
       pkgName: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       pkgVer: { opacity: 0.5, fontSize: '11px', marginLeft: 'auto', flexShrink: 0 },
       search: { padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '12.5px' },
+      // 「关于」组：外链靠右等宽、↗ 与文字同色但更淡，避免整行像按钮。
+      link: { color: 'inherit', textDecoration: 'none', borderBottom: '1px solid rgba(128,128,128,0.4)', paddingBottom: '1px' },
+      linkExt: { opacity: 0.5, marginLeft: '3px' },
+      ver: { fontVariantNumeric: 'tabular-nums', opacity: 0.8 },
     }
 
     function Toggle(props) {
@@ -642,6 +685,81 @@ window.__ModuleLoader__.load({
                   : h('span', { style: S.pkgVer }, item.version),
               )),
         ),
+      )
+    }
+
+    /**
+     * 「关于 aupdate」信息组。
+     *
+     * 照 Bloom 设置页的「关于 Bloom」做：版本、更新日志、仓库、反馈四行纯信息，
+     * 再加「点个星 / 分享」。版本从 /state 读（随 package.json 变），不写死。
+     *
+     * 分享用 clipboard 复制项目地址：navigator.share 在桌面 webview 里多半不可用，
+     * 而「复制地址」在任何环境都能工作；失败就让用户手动复制，不静默吞掉。
+     */
+    function AboutCard(props) {
+      useLang()
+      const [shareHint, setShareHint] = useState('')
+      const version = props.version || ''
+
+      const extLink = (href, label) => h('a', {
+        href,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        style: S.link,
+      }, label, h('span', { style: S.linkExt, 'aria-hidden': 'true' }, '↗'))
+
+      const share = async () => {
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(REPO_URL)
+            setShareHint(T.aboutShareDone)
+            return
+          }
+          setShareHint(T.aboutShareFail)
+        } catch {
+          setShareHint(T.aboutShareFail)
+        }
+      }
+
+      return h('div', { style: S.card },
+        h('span', { style: S.label }, T.about),
+        h('div', { style: S.row },
+          h('span', { style: S.label }, T.aboutVersion),
+          h('span', { style: S.ver }, version === '' ? '…' : 'v' + version),
+        ),
+        h('div', { style: S.row },
+          h('span', { style: S.label }, T.aboutChangelog),
+          extLink(CHANGELOG_URL, T.aboutChangelogLink),
+        ),
+        h('div', { style: S.row },
+          h('span', { style: S.label }, T.aboutRepo),
+          extLink(REPO_URL, 'GitHub'),
+        ),
+        h('div', { style: S.row },
+          h('span', { style: S.label }, T.aboutFeedback),
+          extLink(ISSUES_URL, T.aboutFeedbackLink),
+        ),
+        h('div', { style: S.row },
+          h('span', { style: S.labelBox },
+            h('span', { style: S.label }, T.aboutStar),
+            h('span', { style: S.hint }, T.aboutStarHint),
+          ),
+          extLink(STARS_URL, 'GitHub'),
+        ),
+        h('div', { style: S.row },
+          h('span', { style: S.labelBox },
+            h('span', { style: S.label }, T.aboutShare),
+            h('span', { style: S.hint }, T.aboutShareHint),
+          ),
+          h('button', { type: 'button', style: S.btn, onClick: () => void share() }, T.aboutShare),
+        ),
+        // 项目地址可点开、可选中复制，失败时用户还有这一条路。
+        h('div', { style: S.row },
+          h('span', { style: S.label }, T.aboutProject),
+          extLink(REPO_URL, REPO_URL.replace('https://', '')),
+        ),
+        shareHint ? h('span', { style: S.status }, shareHint) : null,
       )
     }
 
@@ -1034,6 +1152,7 @@ window.__ModuleLoader__.load({
         // 没有保存按钮：改动自己在 350ms 后落盘，这里只报它落没落成。
         saveHint ? h('span', { style: S.status }, saveHint) : null,
         h('span', { style: S.hint }, T.scope),
+        h(AboutCard, { version: state?.version }),
       )
     }
 

@@ -18,6 +18,20 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 
 export const name = 'dsh-aupdate'
 
+/**
+ * 当前插件版本，直接读 package.json。
+ *
+ * 设置页的「关于 aupdate」要显示版本；写死在 client 里每次发版都得改两处，
+ * 还容易忘。这里在模块加载时读一次，发版只改 package.json 就够了。
+ */
+let pluginVersion = '0.0.0'
+try {
+  const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+  if (typeof manifest.version === 'string' && manifest.version !== '') pluginVersion = manifest.version
+} catch {
+  // 读不到就显示 0.0.0，绝不让设置页因为一个版本号加载失败。
+}
+
 const LOG_MAX_BYTES = 1_000_000
 /** 一次查询里同时在飞的 registry 请求数。 */
 const FETCH_CONCURRENCY = 6
@@ -2189,6 +2203,8 @@ function settingsSnapshot(config, ctxRef, lang) {
   return {
     settings,
     overrides: readOverrides(),
+    // 「关于 aupdate」显示用；随 package.json 自动更新，无需手改前端。
+    version: pluginVersion,
     // 运行中的进度：没在跑时为 null，设置页据此决定要不要显示进度条。
     progress: progress === null ? null : { ...progress },
     lastRun: lastRun === null ? null : {

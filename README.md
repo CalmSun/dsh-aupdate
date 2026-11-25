@@ -149,6 +149,13 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 - 「全选 / 清空」只作用于当前筛选出来的行——搜完再点全选，意思是把搜到的都勾上
 - 这个 profile 里装着的插件都会列出来，列表本身就是「能勾什么」的全部答案
 
+### 关于 aupdate
+
+设置页底部有「关于 aupdate」信息组（照 Bloom 的「关于 Bloom」做）：版本号（从 package.json
+读取，发版不用改前端）、查看更新日志、源码仓库、提交问题，另有「点个星」（打开 GitHub
+stargazers）与「分享」（复制项目地址到剪贴板，任何环境都能用；失败时地址本身也可点开复制）。
+外链一律 `target=_blank` + `rel=noopener noreferrer`。
+
 ### 「上一次」不会再被重启清空
 
 最近一轮的结果（时间、查了多少个、几个可更新、装成几个、失败原因）现在落在
@@ -399,6 +406,12 @@ one request per character. The same UI is also its own page under
 their installed versions, instead of a textarea you had to type package names into.
 Search narrows the list; Select all / Clear only touch the rows currently shown, so
 "search, then select all" means what you expect.
+
+An **About aupdate** group sits at the bottom of the page (modeled on Bloom's About section):
+the version (read from package.json, so releases need no front-end edit), a changelog link,
+source repository, issue tracker, plus Star and Share (copies the project URL; the URL is
+also selectable if the copy fails). External links use target=_blank with
+rel=noopener noreferrer.
 
 The last run's outcome (when, how many checked, how many updatable, how many installed,
 why it failed) is persisted to `~/.dsh/aupdate-lastrun.json` and survives a restart. It
