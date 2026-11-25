@@ -14,6 +14,30 @@ window.__ModuleLoader__.load({
      * 外链一律 target=_blank + rel=noopener noreferrer：设置页可能跑在受限
      * webview 里，noopener 防止新页反向控制本页。
      */
+    /**
+     * 状态词本地化。
+     *
+     * 后端存的是数据（done / failed / blocked…），不该直接显示在界面上。
+     * 只有拿不到已渲染的 reason 时的兜底路径会用到它，所以表不用很大。
+     */
+    const STATUS_LABELS = {
+      zh: {
+        done: '完成', failed: '失败', blocked: '已让开', partial: '部分完成', busy: '正在跑',
+        skipped: '已跳过', none: '无', ok: '成功', cancelled: '已取消', restart: '需重启',
+        applying: '生效中', unavailable: '不可用',
+      },
+      en: {
+        done: 'done', failed: 'failed', blocked: 'held off', partial: 'partly done', busy: 'busy',
+        skipped: 'skipped', none: 'none', ok: 'ok', cancelled: 'cancelled', restart: 'restart needed',
+        applying: 'applying', unavailable: 'unavailable',
+      },
+    }
+
+    function statusLabel(value) {
+      const table = STATUS_LABELS[LANG] ?? STATUS_LABELS.zh
+      return table[String(value ?? '')] ?? String(value ?? '')
+    }
+
     const REPO_URL = 'https://github.com/CalmSun/dsh-aupdate'
     const CHANGELOG_URL = REPO_URL + '/releases'
     const ISSUES_URL = REPO_URL + '/issues/new'
@@ -37,6 +61,7 @@ window.__ModuleLoader__.load({
         progressApply: '正在就地生效…',
         runDone: '检查完成',
         runFailed: '检查没能完成',
+        off: '已关闭',
         lastRun: '上一次',
         never: '还没跑过',
         checked: '检查了',
@@ -170,6 +195,7 @@ window.__ModuleLoader__.load({
         progressApply: 'Applying in place…',
         runDone: 'Check finished',
         runFailed: 'Check could not finish',
+        off: 'off',
         lastRun: 'Last run',
         never: 'never',
         checked: 'checked',
@@ -893,9 +919,12 @@ window.__ModuleLoader__.load({
           // 进度由上面的常驻轮询统一负责，这里只发请求。
           const result = await runNow('update')
           if (result?.started === false) {
+            // 「已经有一轮在跑」这类信息在「上一次」里没有，必须显示。
             setRunHint(result.reason || T.runFailed)
           } else {
-            setRunHint((result?.reason || T.runDone) + ' · ' + (result?.status ?? ''))
+            // 只给一句「检查完成」。原因和状态已经写进「上一次」那张卡，
+            // 这里再拼一遍 reason + status 会和它逐字重复（还有英文 done）。
+            setRunHint(T.runDone)
           }
           // 跑完把状态刷一遍，页面上看到的就是最新结果。
           try {
@@ -910,6 +939,14 @@ window.__ModuleLoader__.load({
           // 不在这里清 progress：常驻轮询会在后端清掉后同步，手动作废会和它打架。
         }
       }, [running])
+
+      // 结束提示只是一次性反馈：6 秒后自己收掉，免得它一直挂在卡片里，
+      // 和下面「上一次」的原因并列成两段一样的文字。
+      useEffect(() => {
+        if (running || runHint === '') return undefined
+        const timer = setTimeout(() => setRunHint(''), 6000)
+        return () => clearTimeout(timer)
+      }, [running, runHint])
 
       const doCleanup = useCallback(async () => {
         if (cleaning) return
@@ -1099,7 +1136,9 @@ window.__ModuleLoader__.load({
                 h('span', null, (last.updates?.length ?? 0) > 0
                   ? (last.updates?.length ?? 0) + ' ' + T.updates
                   : T.upToDate),
-                h('span', null, last.reason || last.status || ''),
+                // reason 是后端按语言渲染好的句子；没有它才退回本地化的状态词，
+          // 绝不要把英文 done 直接摆到界面上。
+          h('span', null, last.reason || statusLabel(last.status) || ''),
               ),
           // 只报「4 个可更新」不够：要看得出是哪几个、从哪版到哪版。
           // 列表封高度、内部滚动，30 个包也不会把这张卡拉成一屏多。
@@ -1253,7 +1292,7 @@ window.__ModuleLoader__.load({
       const text = state === null
         ? '…'
         : state.settings?.enabled === false
-          ? (T.enabled + '：' + 'off')
+          ? (T.enabled + '：' + T.off)
           : last === null || last === undefined
             ? T.never
             : (last.updates?.length ?? 0) > 0

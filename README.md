@@ -149,6 +149,12 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 - 「全选 / 清空」只作用于当前筛选出来的行——搜完再点全选，意思是把搜到的都勾上
 - 这个 profile 里装着的插件都会列出来，列表本身就是「能勾什么」的全部答案
 
+### 提示不重复
+
+「上一次」卡片里，本轮结果的原因只出现一次：点「立刻检查」后的反馈只是一句
+「检查完成」，6 秒后自动收掉——不再把 reason 和状态词（还是英文 done）拼一遍贴在下面。
+状态词只在没有已渲染原因时作为兜底，且按当前语言显示。
+
 ### 关于 aupdate
 
 设置页底部有「关于 aupdate」信息组（照 Bloom 的「关于 Bloom」做）：版本号（从 package.json
@@ -406,6 +412,13 @@ one request per character. The same UI is also its own page under
 their installed versions, instead of a textarea you had to type package names into.
 Search narrows the list; Select all / Clear only touch the rows currently shown, so
 "search, then select all" means what you expect.
+
+### No duplicated hints
+
+The Last run card states the outcome once. Clicking Check now only adds a short
+"Check finished" acknowledgment that clears itself after six seconds — it no longer echoes
+the same reason plus a raw status word underneath. Status words are a localized fallback
+used only when no rendered reason exists.
 
 An **About aupdate** group sits at the bottom of the page (modeled on Bloom's About section):
 the version (read from package.json, so releases need no front-end edit), a changelog link,
