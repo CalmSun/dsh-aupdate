@@ -38,6 +38,25 @@ window.__ModuleLoader__.load({
       return table[String(value ?? '')] ?? String(value ?? '')
     }
 
+    /**
+     * 状态徽标配色。
+     *
+     * 后端存的是机器词（done/failed/blocked…），直接铺成一行文字看不出轻重；
+     * 这点颜色区分让「装完了」「失败了」「让开了」一眼能分开，文字本身仍走
+     * statusLabel 本地化。
+     */
+    const BADGE_TONE = {
+      ok: 'ok', done: 'ok',
+      partial: 'warn', skipped: 'warn', blocked: 'warn', restart: 'warn',
+      failed: 'err', error: 'err',
+      busy: 'run', applying: 'run',
+    }
+
+    function badgeClass(status) {
+      const tone = BADGE_TONE[String(status ?? '')]
+      return tone ? S.badge + ' ' + tone : S.badge
+    }
+
     const REPO_URL = 'https://github.com/CalmSun/dsh-aupdate'
     const CHANGELOG_URL = REPO_URL + '/releases'
     const ISSUES_URL = REPO_URL + '/issues/new'
@@ -47,6 +66,10 @@ window.__ModuleLoader__.load({
       zh: {
         title: '插件自动更新',
         subtitle: '定时检查 registry，发现新版本就装好并就地生效',
+        secGeneral: '基本设置',
+        secSchedule: '调度与范围',
+        lastChecked: '上次检查',
+        lastUpdates: '可更新',
         unavailable: '读不到设置：后端路由没起来（插件仍会按默认设置自动更新）',
         retry: '重试',
         save: '保存',
@@ -181,6 +204,10 @@ window.__ModuleLoader__.load({
       en: {
         title: 'Plugin auto-update',
         subtitle: 'Checks the registry on a timer and applies new versions in place',
+        secGeneral: 'Basics',
+        secSchedule: 'Schedule and scope',
+        lastChecked: 'Last check',
+        lastUpdates: 'Updates',
         unavailable: 'Cannot read settings: the backend route is not up (defaults still apply)',
         retry: 'Retry',
         save: 'Save',
@@ -496,45 +523,158 @@ window.__ModuleLoader__.load({
       return response.json()
     }
 
-    /* ── styles: kept inline so the page needs no build step ───────────── */
-    const S = {
-      wrap: { display: 'flex', flexDirection: 'column', gap: '14px', padding: '4px 2px', fontSize: '13px', lineHeight: 1.5 },
-      head: { display: 'flex', flexDirection: 'column', gap: '2px' },
-      title: { fontSize: '14px', fontWeight: 600, margin: 0 },
-      sub: { opacity: 0.62, fontSize: '12px', margin: 0 },
-      card: { border: '1px solid rgba(128,128,128,0.22)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' },
-      row: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' },
-      labelBox: { display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0 },
-      label: { fontWeight: 500 },
-      hint: { opacity: 0.55, fontSize: '11.5px' },
-      input: { width: '96px', padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '13px', textAlign: 'right' },
-      area: { width: '100%', minHeight: '58px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '12.5px', fontFamily: 'inherit', resize: 'vertical' },
-      // select 的宽度比数字框宽：四种模式的中文标签最长「每天固定时刻」。
-      select: { padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '13px', minWidth: '132px' },
-      actions: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
-      btn: { padding: '5px 12px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: '13px' },
-      btnPrimary: { padding: '5px 12px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'rgba(128,128,128,0.16)', color: 'inherit', cursor: 'pointer', fontSize: '13px', fontWeight: 500 },
-      status: { fontSize: '12px', opacity: 0.7 },
-      err: { fontSize: '12px', color: '#d9534f' },
-      meta: { display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '12px', opacity: 0.7 },
-      // 等宽 + 可滚动：日志要能对齐看时间戳，也不能把整页顶长。
-      logBox: { margin: 0, padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.22)', background: 'rgba(128,128,128,0.06)', fontSize: '11.5px', lineHeight: 1.55, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', maxHeight: '260px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
-      logTime: { opacity: 0.5, flexShrink: 0, fontVariantNumeric: 'tabular-nums' },
-      logText: {},
-      // 勾选清单：包名可能很长（@scope/name），要能截断，版本靠右对齐。
-      // 更新记录可能上百条，不封高度会把整页顶到几屏之外，滚动条交还给这一栏。
-      scrollList: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto', paddingRight: '4px' },
-      pkgList: { display: 'flex', flexDirection: 'column', gap: '1px', maxHeight: '240px', overflow: 'auto', border: '1px solid rgba(128,128,128,0.22)', borderRadius: '6px', padding: '4px' },
-      pkgRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '2px 4px', borderRadius: '4px', cursor: 'pointer' },
-      pkgName: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      pkgVer: { opacity: 0.5, fontSize: '11px', marginLeft: 'auto', flexShrink: 0 },
-      search: { padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(128,128,128,0.32)', background: 'transparent', color: 'inherit', fontSize: '12.5px' },
-      // 「关于」组：外链靠右等宽、↗ 与文字同色但更淡，避免整行像按钮。
-      link: { color: 'inherit', textDecoration: 'none', borderBottom: '1px solid rgba(128,128,128,0.4)', paddingBottom: '1px' },
-      linkExt: { opacity: 0.5, marginLeft: '3px' },
-      ver: { fontVariantNumeric: 'tabular-nums', opacity: 0.8 },
+    /* ── styles ─────────────────────────────────────────────────────────
+     *
+     * 视觉风格对齐 dsh-cost-meter 的设置页：分区卡片、小号分区标题、次级说明
+     * 文字、主/次两级小按钮、右下角通知卡；颜色一律走 --dsw-alias-* 主题变量
+     * 并带字面量回退，取不到变量也不会变成看不见的字。
+     *
+     * 原来每个节点都挂一坨内联 style，代价有三：
+     * - hover / focus-visible / 动画做不了（内联样式没有伪类）；
+     * - 每次渲染重建几十个样式对象，输入框每敲一个字符就重建一次；
+     * - 颜色写死 rgba，亮色/暗色主题只能靠碰运气。
+     *
+     * 所以改成「一张只注入一次的样式表 + 类名」。选择器全部带 dsh-au- 前缀，
+     * 只作用于本插件自己的节点，不碰宿主和其它插件的样式。
+     */
+    const CSS_ID = 'dsh-aupdate-styles'
+
+    const CSS_TEXT = `
+.dsh-au-wrap{display:flex;flex-direction:column;gap:16px;padding:2px 0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#1f2328)}
+.dsh-au-head{display:flex;flex-direction:column;gap:3px}
+.dsh-au-title{margin:0;font-size:15px;font-weight:600}
+.dsh-au-sub{margin:0;font-size:12px;color:var(--dsw-alias-label-tertiary,rgba(128,128,128,.95))}
+
+.dsh-au-section{display:flex;flex-direction:column;gap:10px;padding:14px 15px;border-radius:12px;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));background:var(--dsw-alias-bg-layer-1,rgba(128,128,128,.03))}
+.dsh-au-h{margin:0;font-size:12px;font-weight:600;letter-spacing:.01em;color:var(--dsw-alias-label-secondary,rgba(128,128,128,1))}
+.dsh-au-note{margin:0;font-size:12px;color:var(--dsw-alias-label-tertiary,rgba(128,128,128,.95))}
+.dsh-au-err{margin:0;font-size:12px;color:var(--dsw-alias-state-error-primary,#d9534f)}
+
+.dsh-au-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.dsh-au-col{display:flex;flex-direction:column;gap:6px}
+.dsh-au-line{display:flex;align-items:baseline;gap:8px}
+.dsh-au-labelbox{display:flex;flex-direction:column;gap:1px;min-width:0}
+.dsh-au-label{font-weight:500}
+.dsh-au-hint{font-size:11.5px;color:var(--dsw-alias-label-caption,rgba(128,128,128,.85))}
+.dsh-au-status{font-size:12px;color:var(--dsw-alias-label-tertiary,rgba(128,128,128,.95))}
+.dsh-au-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--dsw-alias-label-tertiary,rgba(128,128,128,.95))}
+.dsh-au-num{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,inherit)}
+
+.dsh-au-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px}
+.dsh-au-stat{display:flex;flex-direction:column;gap:1px;padding:10px 12px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.05))}
+.dsh-au-stat-k{font-size:11.5px;color:var(--dsw-alias-label-caption,rgba(128,128,128,.85))}
+.dsh-au-stat-v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.dsh-au-badge{display:inline-flex;align-items:center;align-self:flex-start;gap:4px;padding:1px 8px;border-radius:999px;font-size:11px;line-height:1.6;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.28));color:var(--dsw-alias-label-secondary,inherit)}
+.dsh-au-badge.ok{color:var(--dsw-alias-state-success-primary,#2f9e44);border-color:var(--dsw-alias-state-success-tertiary,rgba(47,158,68,.4));background:color-mix(in oklch,var(--dsw-alias-state-success-primary,#2f9e44),transparent 90%)}
+.dsh-au-badge.warn{color:var(--dsw-alias-state-warn-primary,#b8860b);border-color:var(--dsw-alias-state-warn-tertiary,rgba(184,134,11,.4));background:color-mix(in oklch,var(--dsw-alias-state-warn-primary,#b8860b),transparent 90%)}
+.dsh-au-badge.err{color:var(--dsw-alias-state-error-primary,#d9534f);border-color:color-mix(in oklch,var(--dsw-alias-state-error-primary,#d9534f),transparent 55%);background:color-mix(in oklch,var(--dsw-alias-state-error-primary,#d9534f),transparent 90%)}
+.dsh-au-badge.run{color:var(--dsw-alias-state-business-primary,#4d6bfe);border-color:color-mix(in oklch,var(--dsw-alias-state-business-primary,#4d6bfe),transparent 55%);background:color-mix(in oklch,var(--dsw-alias-state-business-primary,#4d6bfe),transparent 90%)}
+
+.dsh-au-input{width:96px;padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:13px;text-align:right;transition:border-color .15s}
+.dsh-au-area{width:100%;min-height:58px;padding:6px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:12.5px;resize:vertical;transition:border-color .15s}
+.dsh-au-select{padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:13px;min-width:132px;transition:border-color .15s}
+.dsh-au-search{padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:12.5px;transition:border-color .15s}
+.dsh-au-input:focus,.dsh-au-area:focus,.dsh-au-select:focus,.dsh-au-search:focus{outline:none;border-color:var(--dsw-alias-state-business-primary,#4d6bfe)}
+.dsh-au-input:disabled,.dsh-au-select:disabled,.dsh-au-area:disabled{opacity:.55}
+
+.dsh-au-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-au-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 11px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:transparent;color:inherit;font:inherit;font-size:12.5px;cursor:pointer;transition:background .15s,border-color .15s,opacity .15s}
+.dsh-au-btn:hover:not(:disabled){background:var(--dsw-alias-bg-mask-2,rgba(128,128,128,.12))}
+.dsh-au-btn:active:not(:disabled){background:var(--dsw-alias-bg-mask-3,rgba(128,128,128,.18))}
+.dsh-au-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
+.dsh-au-btn:disabled{opacity:.5;cursor:default}
+.dsh-au-primary{background:var(--dsw-alias-button-primary-fill,#4d6bfe);border-color:transparent;color:var(--dsw-alias-label-primary-foreground,#fff);font-weight:500}
+.dsh-au-primary:hover:not(:disabled){background:color-mix(in oklch,var(--dsw-alias-button-primary-fill,#4d6bfe),black 8%)}
+.dsh-au-primary:active:not(:disabled){background:color-mix(in oklch,var(--dsw-alias-button-primary-fill,#4d6bfe),black 14%)}
+
+.dsh-au-check{flex:0 0 auto;width:16px;height:16px;margin:2px 0 0;cursor:pointer;accent-color:var(--dsw-alias-state-business-primary,#4d6bfe)}
+.dsh-au-check:disabled{cursor:default;opacity:.5}
+
+.dsh-au-scroll{display:flex;flex-direction:column;gap:6px;max-height:264px;overflow-y:auto;padding-right:4px}
+.dsh-au-pkglist{display:flex;flex-direction:column;gap:1px;max-height:240px;overflow:auto;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));border-radius:10px;padding:4px}
+.dsh-au-pkgrow{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:6px;cursor:pointer}
+.dsh-au-pkgrow:hover{background:var(--dsw-alias-bg-mask-1,rgba(128,128,128,.08))}
+.dsh-au-pkgname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-au-pkgver{flex:0 0 auto;margin-left:auto;font-size:11px;color:var(--dsw-alias-label-caption,rgba(128,128,128,.85));font-variant-numeric:tabular-nums}
+.dsh-au-log{margin:0;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.06));font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.6;max-height:288px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.dsh-au-logtime{color:var(--dsw-alias-label-caption,rgba(128,128,128,.8));font-variant-numeric:tabular-nums}
+.dsh-au-logtext{color:inherit}
+
+.dsh-au-link{color:inherit;text-decoration:none;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.4));padding-bottom:1px;transition:color .15s,border-color .15s}
+.dsh-au-link:hover{color:var(--dsw-alias-state-business-primary,#4d6bfe);border-color:currentColor}
+.dsh-au-linkext{margin-left:3px;opacity:.5}
+
+.dsh-au-toast{position:fixed;right:16px;bottom:16px;z-index:2147483000;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;width:340px;max-width:calc(100vw - 32px);padding:14px 15px;border-radius:12px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.28));background:var(--dsw-alias-toast-bg,#f7f7f8);color:var(--dsw-alias-label-primary,#1f2328);box-shadow:0 12px 32px rgba(0,0,0,.24);font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;animation:dsh-au-in .18s ease-out}
+.dsh-au-toast-head{display:flex;align-items:center;gap:8px}
+.dsh-au-toast-title{flex:1 1 auto;min-width:0;font-weight:600}
+.dsh-au-toast-x{flex:0 0 auto;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:16px;line-height:1;opacity:.6;cursor:pointer;transition:background .15s,opacity .15s}
+.dsh-au-toast-x:hover{opacity:1;background:var(--dsw-alias-bg-mask-2,rgba(128,128,128,.14))}
+.dsh-au-toast-list{display:flex;flex-direction:column;gap:2px;max-height:190px;overflow:auto;margin:0 -4px}
+.dsh-au-toast-item{display:flex;align-items:baseline;gap:8px;padding:3px 6px;border-radius:6px;background:var(--dsw-alias-bg-mask-1,rgba(128,128,128,.08))}
+.dsh-au-toast-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-au-toast-ver{flex:0 0 auto;font-size:11.5px;color:var(--dsw-alias-label-tertiary,rgba(128,128,128,.95));font-variant-numeric:tabular-nums}
+.dsh-au-toast-more{font-size:11.5px;color:var(--dsw-alias-label-caption,rgba(128,128,128,.85))}
+.dsh-au-toast-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+@keyframes dsh-au-in{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.dsh-au-toast{animation:none}}
+`
+
+    /** 只注入一次：id 存在就跳过，重复挂载/热更新都不会叠出第二份样式表。 */
+    function installStyles() {
+      try {
+        const doc = typeof document === 'undefined' ? null : document
+        if (doc === null || doc.head === null) return
+        if (doc.getElementById(CSS_ID) !== null) return
+        const tag = doc.createElement('style')
+        tag.id = CSS_ID
+        tag.setAttribute('data-dsh-aupdate', 'styles')
+        tag.textContent = CSS_TEXT
+        doc.head.appendChild(tag)
+      } catch {}
     }
 
+    /* 类名映射：组件里写 S.card 就等于挂上 dsh-au-section。 */
+    const S = {
+      wrap: 'dsh-au-wrap',
+      head: 'dsh-au-head',
+      title: 'dsh-au-title',
+      sub: 'dsh-au-sub',
+      card: 'dsh-au-section',
+      h: 'dsh-au-h',
+      note: 'dsh-au-note',
+      row: 'dsh-au-row',
+      labelBox: 'dsh-au-labelbox',
+      label: 'dsh-au-label',
+      hint: 'dsh-au-hint',
+      input: 'dsh-au-input',
+      area: 'dsh-au-area',
+      select: 'dsh-au-select',
+      search: 'dsh-au-search',
+      actions: 'dsh-au-actions',
+      btn: 'dsh-au-btn',
+      btnPrimary: 'dsh-au-btn dsh-au-primary',
+      status: 'dsh-au-status',
+      err: 'dsh-au-err',
+      meta: 'dsh-au-meta',
+      cards: 'dsh-au-cards',
+      stat: 'dsh-au-stat',
+      statK: 'dsh-au-stat-k',
+      statV: 'dsh-au-stat-v',
+      badge: 'dsh-au-badge',
+      check: 'dsh-au-check',
+      logBox: 'dsh-au-log',
+      logTime: 'dsh-au-logtime',
+      logText: 'dsh-au-logtext',
+      scrollList: 'dsh-au-scroll',
+      pkgList: 'dsh-au-pkglist',
+      pkgRow: 'dsh-au-pkgrow',
+      pkgName: 'dsh-au-pkgname',
+      pkgVer: 'dsh-au-pkgver',
+      link: 'dsh-au-link',
+      linkExt: 'dsh-au-linkext',
+      ver: 'dsh-au-num',
+    }
     function Toggle(props) {
       const { checked, onChange, disabled } = props
       return h('input', {
@@ -542,16 +682,16 @@ window.__ModuleLoader__.load({
         checked: checked === true,
         disabled: disabled === true,
         onChange: (event) => onChange(event.target.checked),
-        style: { width: '16px', height: '16px', cursor: disabled === true ? 'default' : 'pointer', accentColor: 'currentColor', marginTop: '2px' },
+        className: S.check,
       })
     }
 
     function SwitchRow(props) {
       const { label, hint, value, onChange, disabled } = props
-      return h('div', { style: S.row },
-        h('div', { style: S.labelBox },
-          h('span', { style: S.label }, label),
-          hint ? h('span', { style: S.hint }, hint) : null,
+      return h('div', { className: S.row },
+        h('div', { className: S.labelBox },
+          h('span', { className: S.label }, label),
+          hint ? h('span', { className: S.hint }, hint) : null,
         ),
         h(Toggle, { checked: value, onChange, disabled }),
       )
@@ -559,10 +699,10 @@ window.__ModuleLoader__.load({
 
     function NumberRow(props) {
       const { label, hint, value, onChange, min, max, disabled } = props
-      return h('div', { style: S.row },
-        h('div', { style: S.labelBox },
-          h('span', { style: S.label }, label),
-          hint ? h('span', { style: S.hint }, hint) : null,
+      return h('div', { className: S.row },
+        h('div', { className: S.labelBox },
+          h('span', { className: S.label }, label),
+          hint ? h('span', { className: S.hint }, hint) : null,
         ),
         h('input', {
           type: 'number',
@@ -574,7 +714,7 @@ window.__ModuleLoader__.load({
             const next = Number(event.target.value)
             if (Number.isFinite(next)) onChange(next)
           },
-          style: S.input,
+          className: S.input,
         }),
       )
     }
@@ -585,17 +725,17 @@ window.__ModuleLoader__.load({
      */
     function ClockRow(props) {
       const { label, hint, value, onChange, disabled } = props
-      return h('div', { style: S.row },
-        h('div', { style: S.labelBox },
-          h('span', { style: S.label }, label),
-          hint ? h('span', { style: S.hint }, hint) : null,
+      return h('div', { className: S.row },
+        h('div', { className: S.labelBox },
+          h('span', { className: S.label }, label),
+          hint ? h('span', { className: S.hint }, hint) : null,
         ),
         h('input', {
           type: 'time',
           value: typeof value === 'string' ? value : '03:00',
           disabled: disabled === true,
           onChange: (event) => onChange(event.target.value),
-          style: S.input,
+          className: S.input,
         }),
       )
     }
@@ -608,16 +748,16 @@ window.__ModuleLoader__.load({
      */
     function SelectRow(props) {
       const { label, hint, value, options, onChange, disabled } = props
-      return h('div', { style: S.row },
-        h('div', { style: S.labelBox },
-          h('span', { style: S.label }, label),
-          hint ? h('span', { style: S.hint }, hint) : null,
+      return h('div', { className: S.row },
+        h('div', { className: S.labelBox },
+          h('span', { className: S.label }, label),
+          hint ? h('span', { className: S.hint }, hint) : null,
         ),
         h('select', {
           value,
           disabled: disabled === true,
           onChange: (event) => onChange(event.target.value),
-          style: S.select,
+          className: S.select,
         }, options.map((option) => h('option', { key: option.value, value: option.value }, option.label))),
       )
     }
@@ -641,8 +781,8 @@ window.__ModuleLoader__.load({
       if (typeof gate.lock === 'string' && gate.lock !== '') {
         parts.push(T.gateLocked.replace('{who}', gate.lock))
       }
-      return h('div', { style: S.labelBox },
-        h('span', { style: S.hint }, parts.join(' · ')),
+      return h('div', { className: S.labelBox },
+        h('span', { className: S.hint }, parts.join(' · ')),
       )
     }
 
@@ -685,30 +825,31 @@ window.__ModuleLoader__.load({
         commit(next)
       }
 
-      if (all.length === 0) return h('span', { style: S.status }, T.pkgsEmpty)
+      if (all.length === 0) return h('span', { className: S.status }, T.pkgsEmpty)
 
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-        h('div', { style: S.actions },
+      return h('div', { className: 'dsh-au-col' },
+        h('div', { className: S.actions },
           h('input', {
             type: 'search',
             value: query,
             placeholder: T.pkgsSearch,
             onChange: (event) => setQuery(event.target.value),
-            style: { ...S.search, flex: '1 1 160px' },
+            className: S.search,
+            style: { flex: '1 1 160px' },
           }),
-          h('button', { type: 'button', style: S.btn, onClick: () => setVisible(true) }, T.pkgsAll),
-          h('button', { type: 'button', style: S.btn, onClick: () => setVisible(false) }, T.pkgsNone),
-          h('span', { style: S.hint }, T.pkgsCount.replace('{n}', String(chosen.size))),
+          h('button', { type: 'button', className: S.btn, onClick: () => setVisible(true) }, T.pkgsAll),
+          h('button', { type: 'button', className: S.btn, onClick: () => setVisible(false) }, T.pkgsNone),
+          h('span', { className: S.hint }, T.pkgsCount.replace('{n}', String(chosen.size))),
         ),
-        h('div', { style: S.pkgList },
+        h('div', { className: S.pkgList },
           rows.length === 0
-            ? h('span', { style: { ...S.status, padding: '4px' } }, T.pkgsNoMatch)
-            : rows.map((item) => h('label', { key: item.name, style: S.pkgRow, title: item.name },
+            ? h('span', { className: S.status, style: { padding: '4px' } }, T.pkgsNoMatch)
+            : rows.map((item) => h('label', { key: item.name, className: S.pkgRow, title: item.name },
                 h(Toggle, { checked: chosen.has(item.name), onChange: () => toggle(item.name) }),
-                h('span', { style: S.pkgName }, item.name),
+                h('span', { className: S.pkgName }, item.name),
                 item.version === ''
-                  ? h('span', { style: S.pkgVer }, T.pkgsNotInstalled)
-                  : h('span', { style: S.pkgVer }, item.version),
+                  ? h('span', { className: S.pkgVer }, T.pkgsNotInstalled)
+                  : h('span', { className: S.pkgVer }, item.version),
               )),
         ),
       )
@@ -732,8 +873,8 @@ window.__ModuleLoader__.load({
         href,
         target: '_blank',
         rel: 'noopener noreferrer',
-        style: S.link,
-      }, label, h('span', { style: S.linkExt, 'aria-hidden': 'true' }, '↗'))
+        className: S.link,
+      }, label, h('span', { className: S.linkExt, 'aria-hidden': 'true' }, '↗'))
 
       const share = async () => {
         try {
@@ -748,44 +889,44 @@ window.__ModuleLoader__.load({
         }
       }
 
-      return h('div', { style: S.card },
-        h('span', { style: S.label }, T.about),
-        h('div', { style: S.row },
-          h('span', { style: S.label }, T.aboutVersion),
-          h('span', { style: S.ver }, version === '' ? '…' : 'v' + version),
+      return h('div', { className: S.card },
+        h('h3', { className: S.h }, T.about),
+        h('div', { className: S.row },
+          h('span', { className: S.label }, T.aboutVersion),
+          h('span', { className: S.ver }, version === '' ? '…' : 'v' + version),
         ),
-        h('div', { style: S.row },
-          h('span', { style: S.label }, T.aboutChangelog),
+        h('div', { className: S.row },
+          h('span', { className: S.label }, T.aboutChangelog),
           extLink(CHANGELOG_URL, T.aboutChangelogLink),
         ),
-        h('div', { style: S.row },
-          h('span', { style: S.label }, T.aboutRepo),
+        h('div', { className: S.row },
+          h('span', { className: S.label }, T.aboutRepo),
           extLink(REPO_URL, 'GitHub'),
         ),
-        h('div', { style: S.row },
-          h('span', { style: S.label }, T.aboutFeedback),
+        h('div', { className: S.row },
+          h('span', { className: S.label }, T.aboutFeedback),
           extLink(ISSUES_URL, T.aboutFeedbackLink),
         ),
-        h('div', { style: S.row },
-          h('span', { style: S.labelBox },
-            h('span', { style: S.label }, T.aboutStar),
-            h('span', { style: S.hint }, T.aboutStarHint),
+        h('div', { className: S.row },
+          h('span', { className: S.labelBox },
+            h('span', { className: S.label }, T.aboutStar),
+            h('span', { className: S.hint }, T.aboutStarHint),
           ),
           extLink(STARS_URL, 'GitHub'),
         ),
-        h('div', { style: S.row },
-          h('span', { style: S.labelBox },
-            h('span', { style: S.label }, T.aboutShare),
-            h('span', { style: S.hint }, T.aboutShareHint),
+        h('div', { className: S.row },
+          h('span', { className: S.labelBox },
+            h('span', { className: S.label }, T.aboutShare),
+            h('span', { className: S.hint }, T.aboutShareHint),
           ),
-          h('button', { type: 'button', style: S.btn, onClick: () => void share() }, T.aboutShare),
+          h('button', { type: 'button', className: S.btn, onClick: () => void share() }, T.aboutShare),
         ),
         // 项目地址可点开、可选中复制，失败时用户还有这一条路。
-        h('div', { style: S.row },
-          h('span', { style: S.label }, T.aboutProject),
+        h('div', { className: S.row },
+          h('span', { className: S.label }, T.aboutProject),
           extLink(REPO_URL, REPO_URL.replace('https://', '')),
         ),
-        shareHint ? h('span', { style: S.status }, shareHint) : null,
+        shareHint ? h('span', { className: S.status }, shareHint) : null,
       )
     }
 
@@ -994,24 +1135,25 @@ window.__ModuleLoader__.load({
       }, [rolling, running, confirming])
 
       if (phase === 'error') {
-        return h('div', { style: S.card },
-          h('span', { style: S.err }, T.unavailable),
-          h('div', { style: S.actions }, h('button', { type: 'button', style: S.btn, onClick: () => void load() }, T.retry)),
+        return h('div', { className: S.card },
+          h('span', { className: S.err }, T.unavailable),
+          h('div', { className: S.actions }, h('button', { type: 'button', className: S.btn, onClick: () => void load() }, T.retry)),
         )
       }
 
       if (phase === 'loading' || draft === null) {
-        return h('div', { style: S.card }, h('span', { style: S.status }, '…'))
+        return h('div', { className: S.card }, h('span', { className: S.status }, '…'))
       }
 
       const last = state?.lastRun
 
-      return h('div', { style: S.wrap },
-        h('div', { style: S.head },
-          h('h3', { style: S.title }, T.title),
-          h('p', { style: S.sub }, T.subtitle),
+      return h('div', { className: S.wrap },
+        h('div', { className: S.head },
+          h('h3', { className: S.title }, T.title),
+          h('p', { className: S.sub }, T.subtitle),
         ),
-        h('div', { style: S.card },
+        h('div', { className: S.card },
+          h('h3', { className: S.h }, T.secGeneral),
           h(SelectRow, {
             label: T.language,
             hint: T.languageHint,
@@ -1036,7 +1178,8 @@ window.__ModuleLoader__.load({
           h(SwitchRow, { label: T.idleOnly, hint: T.idleOnlyHint, value: draft.idleOnly, onChange: (v) => patch('idleOnly', v), disabled: !draft.enabled }),
           h(SwitchRow, { label: T.notify, hint: T.notifyHint, value: draft.notify, onChange: (v) => patch('notify', v) }),
         ),
-        h('div', { style: S.card },
+        h('div', { className: S.card },
+          h('h3', { className: S.h }, T.secSchedule),
           h(SelectRow, {
             label: T.schedule,
             hint: T.scheduleHint,
@@ -1068,9 +1211,9 @@ window.__ModuleLoader__.load({
           h(NumberRow, { label: T.maxPerCycle, hint: T.maxPerCycleHint, value: draft.maxPerCycle, min: 0, max: 50, onChange: (v) => patch('maxPerCycle', v), disabled: !draft.enabled }),
           h(NumberRow, { label: T.sessionIdle, hint: T.sessionIdleHint, value: draft.sessionIdleMinutes, min: 0, max: 120, onChange: (v) => patch('sessionIdleMinutes', v), disabled: !draft.enabled || !draft.idleOnly }),
           gateLine(state),
-          h('div', { style: S.labelBox },
-            h('span', { style: S.label }, T.pkgsExclude),
-            h('span', { style: S.hint }, T.pkgsExcludeHint),
+          h('div', { className: S.labelBox },
+            h('span', { className: S.label }, T.pkgsExclude),
+            h('span', { className: S.hint }, T.pkgsExcludeHint),
           ),
           h(PackagePicker, {
             packages: state?.packages,
@@ -1079,14 +1222,14 @@ window.__ModuleLoader__.load({
           }),
         ),
         // 策略：预发布 / 跨大版本，决定「什么算可以装」。
-        h('div', { style: S.card },
-          h('span', { style: S.label }, T.policy),
+        h('div', { className: S.card },
+          h('h3', { className: S.h }, T.policy),
           h(SwitchRow, { label: T.allowMajor, hint: T.allowMajorHint, value: draft.allowMajor, onChange: (v) => patch('allowMajor', v) }),
           h(SwitchRow, { label: T.allowPrerelease, hint: T.allowPrereleaseHint, value: draft.allowPrerelease, onChange: (v) => patch('allowPrerelease', v) }),
         ),
-        h('div', { style: S.card },
-          h('span', { style: S.label }, T.keepTitle),
-          h('span', { style: S.hint }, T.keepHint),
+        h('div', { className: S.card },
+          h('h3', { className: S.h }, T.keepTitle),
+          h('p', { className: S.note }, T.keepHint),
           h(SelectRow, {
             label: T.keepHistory,
             value: String(draft.historyRetentionDays ?? 3),
@@ -1113,33 +1256,52 @@ window.__ModuleLoader__.load({
               { value: '0', label: T.keepForever },
             ],
           }),
-          h('div', { style: S.actions },
-            h('button', { type: 'button', style: S.btn, disabled: cleaning, onClick: () => void doCleanup() }, cleaning ? T.cleaning : T.cleanNow),
-            cleanHint ? h('span', { style: S.status }, cleanHint) : null,
+          h('div', { className: S.actions },
+            h('button', { type: 'button', className: S.btn, disabled: cleaning, onClick: () => void doCleanup() }, cleaning ? T.cleaning : T.cleanNow),
+            cleanHint ? h('span', { className: S.status }, cleanHint) : null,
           ),
         ),
-        h('div', { style: S.card },
+        h('div', { className: S.card },
           // 按钮和它动作的对象放在一起：读「上一次」的人最想做的事就是再跑一次。
-          h('div', { style: S.row },
-            h('span', { style: S.label }, T.lastRun),
-            h('button', { type: 'button', style: S.btn, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
+          h('div', { className: S.row },
+            h('div', { className: S.labelBox },
+              h('h3', { className: S.h }, T.lastRun),
+              last === null || last === undefined ? h('span', { className: S.hint }, T.never) : null,
+            ),
+            h('button', { type: 'button', className: S.btnPrimary, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
           ),
           // 进度单独占一行：安装要几分钟甚至更久，这里明确告诉用户在装第几个。
-          progress
-            ? h('span', { style: { ...S.status, color: '#4c9aff', fontWeight: 500 } }, runningText)
-            : null,
-          last === null || last === undefined
-            ? h('span', { style: S.status }, T.never)
-            : h('div', { style: S.meta },
-                h('span', { title: last.at || '' }, formatWhen(last.at) + (relativeWhen(last.at) ? '（' + relativeWhen(last.at) + '）' : '')),
-                h('span', null, T.checked + ' ' + (last.checked ?? 0) + ' ' + T.packages),
-                h('span', null, (last.updates?.length ?? 0) > 0
-                  ? (last.updates?.length ?? 0) + ' ' + T.updates
-                  : T.upToDate),
-                // reason 是后端按语言渲染好的句子；没有它才退回本地化的状态词，
-          // 绝不要把英文 done 直接摆到界面上。
-          h('span', null, last.reason || statusLabel(last.status) || ''),
-              ),
+          progress ? h('span', { className: 'dsh-au-badge run' }, runningText) : null,
+          // 三张统计卡，照 cost-meter 概览页的写法：一眼看到「什么时候查的、
+          // 查了多少、几个能更」，而不是一串用 · 拼起来的句子。
+          last === null || last === undefined ? null : h('div', { className: S.cards },
+            h('div', { className: S.stat },
+              h('span', { className: S.statK }, T.lastChecked),
+              h('span', { className: S.statV, title: last.at || '' }, formatWhen(last.at) || '—'),
+              relativeWhen(last.at) ? h('span', { className: S.hint }, relativeWhen(last.at)) : null,
+            ),
+            h('div', { className: S.stat },
+              h('span', { className: S.statK }, T.checked),
+              h('span', { className: S.statV }, String(last.checked ?? 0)),
+              h('span', { className: S.hint }, T.packages),
+            ),
+            h('div', { className: S.stat },
+              h('span', { className: S.statK }, T.lastUpdates),
+              h('span', { className: S.statV }, String(last.updates?.length ?? 0)),
+              h('span', { className: S.hint }, (last.updates?.length ?? 0) > 0 ? T.updates : T.upToDate),
+            ),
+          ),
+          // 原因只说一遍：徽标承接状态词，正文承接句子，两者不重复同一句话。
+          (() => {
+            if (last === null || last === undefined) return null
+            const reason = typeof last.reason === 'string' ? last.reason : ''
+            const status = statusLabel(last.status)
+            if (reason === '' && status === '') return null
+            return h('div', { className: S.row },
+              reason === '' ? null : h('span', { className: S.note }, reason),
+              status === '' ? null : h('span', { className: badgeClass(last.status) }, status),
+            )
+          })(),
           // 只报「4 个可更新」不够：要看得出是哪几个、从哪版到哪版。
           // 列表封高度、内部滚动，30 个包也不会把这张卡拉成一屏多。
           (() => {
@@ -1147,31 +1309,31 @@ window.__ModuleLoader__.load({
               .map((item) => describeUpdate(item))
               .filter((row) => row !== null)
             if (rows.length === 0) return null
-            return h('div', { style: S.scrollList },
+            return h('div', { className: S.scrollList },
               rows.map((row, index) => h('div', {
                 key: row.name + ':' + index,
-                style: { display: 'flex', alignItems: 'baseline', gap: '8px' },
+                className: 'dsh-au-line',
               },
-                h('span', { style: S.pkgName, title: row.name }, row.name),
-                row.versions === '' ? null : h('span', { style: S.pkgVer }, row.versions),
+                h('span', { className: S.pkgName, title: row.name }, row.name),
+                row.versions === '' ? null : h('span', { className: S.pkgVer }, row.versions),
               )),
             )
           })(),
-          runHint ? h('span', { style: S.status }, runHint) : null,
+          runHint ? h('span', { className: S.status }, runHint) : null,
         ),
         // 更新记录：谁、从哪到哪、什么时候、成没成，以及回滚入口。
-        h('div', { style: S.card },
-          h('span', { style: S.label }, T.history),
+        h('div', { className: S.card },
+          h('h3', { className: S.h }, T.history),
           (state?.history?.length ?? 0) === 0
-            ? h('span', { style: S.status }, T.historyEmpty)
-            : h('div', { style: S.scrollList },
+            ? h('span', { className: S.status }, T.historyEmpty)
+            : h('div', { className: S.scrollList },
                 state.history.map((row, index) => h('div', {
                   key: row.name + '@' + row.at + ':' + index,
-                  style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' },
+                  className: S.row,
                 },
-                  h('div', { style: S.labelBox },
+                  h('div', { className: S.labelBox },
                     h('span', null, row.name + '  ' + (row.from ?? '?') + ' → ' + (row.to ?? '?')),
-                    h('span', { style: S.hint, title: row.at || '' },
+                    h('span', { className: S.hint, title: row.at || '' },
                       formatWhen(row.at) + (relativeWhen(row.at) ? '（' + relativeWhen(row.at) + '）' : '') +
                       (row.rolledBack === true ? ' · ' + T.rolledBack : '')),
                   ),
@@ -1179,18 +1341,18 @@ window.__ModuleLoader__.load({
                     ? null
                     : h('button', {
                         type: 'button',
-                        style: confirming === row.name ? S.btnPrimary : S.btn,
+                        className: confirming === row.name ? S.btnPrimary : S.btn,
                         disabled: rolling !== '' || running,
                         onClick: () => void doRollback(row.name),
                       }, rolling === row.name ? T.rollingBack : confirming === row.name ? T.rollback + '?' : T.rollback),
                 )),
               ),
-          rollHint ? h('span', { style: S.status }, rollHint) : null,
+          rollHint ? h('span', { className: S.status }, rollHint) : null,
         ),
         h(LogCard, null),
         // 没有保存按钮：改动自己在 350ms 后落盘，这里只报它落没落成。
-        saveHint ? h('span', { style: S.status }, saveHint) : null,
-        h('span', { style: S.hint }, T.scope),
+        saveHint ? h('span', { className: S.status }, saveHint) : null,
+        h('span', { className: S.hint }, T.scope),
         h(AboutCard, { version: state?.version }),
       )
     }
@@ -1234,36 +1396,36 @@ window.__ModuleLoader__.load({
       const rows = (data?.rows ?? []).slice().reverse()
       const total = data?.total ?? 0
 
-      return h('div', { style: S.card },
-        h('div', { style: S.row },
-          h('div', { style: S.labelBox },
-            h('span', { style: S.label }, T.logs),
-            h('span', { style: S.hint }, T.logsHint + ' · ' + T.logsNewest),
+      return h('div', { className: S.card },
+        h('div', { className: S.row },
+          h('div', { className: S.labelBox },
+            h('h3', { className: S.h }, T.logs),
+            h('span', { className: S.hint }, T.logsHint + ' · ' + T.logsNewest),
           ),
-          h('div', { style: S.actions },
+          h('div', { className: S.actions },
             h('select', {
               value: String(lines),
               onChange: (event) => setLines(Number(event.target.value)),
-              style: S.select,
+              className: S.select,
             }, [100, 200, 500, 1000].map((n) => h('option', { key: n, value: String(n) }, n + ' ' + T.logsLines))),
-            h('button', { type: 'button', style: S.btn, onClick: () => setTick((n) => n + 1) }, T.logsRefresh),
+            h('button', { type: 'button', className: S.btn, onClick: () => setTick((n) => n + 1) }, T.logsRefresh),
           ),
         ),
         h(SwitchRow, { label: T.logsAuto, hint: T.logsAutoHint, value: auto, onChange: setAuto }),
         phase === 'loading' && data === null
-          ? h('span', { style: S.status }, '…')
+          ? h('span', { className: S.status }, '…')
           : phase === 'missing' || (data !== null && data.exists === false)
-            ? h('span', { style: S.status }, T.logsMissing)
+            ? h('span', { className: S.status }, T.logsMissing)
             : rows.length === 0
-              ? h('span', { style: S.status }, T.logsEmpty)
-              : h('pre', { style: S.logBox, title: data?.path || '' },
+              ? h('span', { className: S.status }, T.logsEmpty)
+              : h('pre', { className: S.logBox, title: data?.path || '' },
                   rows.map((row, index) => h('div', { key: index },
-                    row.at ? h('span', { style: S.logTime }, formatLogWhen(row.at) + '  ') : null,
-                    h('span', { style: S.logText }, row.text),
+                    row.at ? h('span', { className: S.logTime }, formatLogWhen(row.at) + '  ') : null,
+                    h('span', { className: S.logText }, row.text),
                   )),
                 ),
         data !== null && data.exists !== false
-          ? h('div', { style: S.meta },
+          ? h('div', { className: S.meta },
               h('span', { title: data.path || '' }, T.logsTotal.replace('{n}', String(total))),
               data.rotated === true ? h('span', null, T.logsRotated) : null,
             )
@@ -1298,7 +1460,7 @@ window.__ModuleLoader__.load({
             : (last.updates?.length ?? 0) > 0
               ? (last.updates?.length ?? 0) + ' ' + T.updates
               : T.upToDate
-      return h('span', { style: { fontSize: '12px', opacity: 0.68 } }, text)
+        return h('span', { className: S.status }, text)
     }
 
     /* ── 更新提醒 ────────────────────────────────────────────────────────
@@ -1361,37 +1523,44 @@ window.__ModuleLoader__.load({
       const rows = (Array.isArray(updates) ? updates : []).map((item) => describeUpdate(item)).filter((row) => row !== null)
       if (rows.length === 0) return
       toastOpen = true
+      // 提醒可能在设置页之外弹出来，样式表没装就先补上（幂等）。
+      installStyles()
       const box = doc.createElement('div')
       box.setAttribute('data-dsh-aupdate', 'toast')
-      box.style.cssText = [
-        'position:fixed', 'right:16px', 'bottom:16px', 'z-index:2147483000',
-        'width:320px', 'max-width:calc(100vw - 32px)', 'padding:12px 14px', 'border-radius:10px',
-        'background:rgba(28,28,30,0.97)', 'color:#f4f4f5',
-        'box-shadow:0 8px 28px rgba(0,0,0,0.38)', 'border:1px solid rgba(255,255,255,0.14)',
-        'font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif',
-        'display:flex', 'flex-direction:column', 'gap:9px',
-      ].join(';')
+      box.className = 'dsh-au-toast'
+      box.setAttribute('role', 'status')
+      box.setAttribute('aria-live', 'polite')
 
+      // 头部：标题 + × —— 和 cost-meter 的引导卡同一套「标题行 + 关闭」结构。
+      const head = doc.createElement('div')
+      head.className = 'dsh-au-toast-head'
       const title = doc.createElement('div')
+      title.className = 'dsh-au-toast-title'
       title.textContent = T.toastTitle.replace('{n}', String(rows.length))
-      title.style.cssText = 'font-weight:600;display:flex;align-items:center;gap:6px'
-      box.appendChild(title)
+      const xBtn = doc.createElement('button')
+      xBtn.type = 'button'
+      xBtn.className = 'dsh-au-toast-x'
+      xBtn.textContent = '×'
+      xBtn.setAttribute('aria-label', T.toastDismiss)
+      head.appendChild(title)
+      head.appendChild(xBtn)
+      box.appendChild(head)
 
       const list = doc.createElement('div')
-      // 超过 6 条就在框内滚动：提醒不该占掉半屏。
-      list.style.cssText = 'display:flex;flex-direction:column;gap:2px;max-height:190px;overflow:auto;margin:0 -4px'
+      list.className = 'dsh-au-toast-list'
+      // 超过 12 条就在框内滚动：提醒不该占掉半屏。
       for (const row of rows.slice(0, 12)) {
         const line = doc.createElement('div')
-        line.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:2px 4px;border-radius:4px;background:rgba(255,255,255,0.05)'
+        line.className = 'dsh-au-toast-item'
         const nameEl = doc.createElement('span')
+        nameEl.className = 'dsh-au-toast-name'
         nameEl.textContent = row.name
         // 包名可能很长（@scope/name），压缩它而不是压缩版本。
-        nameEl.style.cssText = 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
         line.appendChild(nameEl)
         if (row.versions !== '') {
           const verEl = doc.createElement('span')
+          verEl.className = 'dsh-au-toast-ver'
           verEl.textContent = row.versions
-          verEl.style.cssText = 'flex:0 0 auto;font-size:11.5px;opacity:0.72;font-variant-numeric:tabular-nums'
           line.appendChild(verEl)
         }
         list.appendChild(line)
@@ -1400,21 +1569,38 @@ window.__ModuleLoader__.load({
 
       if (rows.length > 12) {
         const more = doc.createElement('div')
+        more.className = 'dsh-au-toast-more'
         more.textContent = T.toastMore.replace('{n}', String(rows.length - 12))
-        more.style.cssText = 'font-size:11.5px;opacity:0.6'
         box.appendChild(more)
       }
 
+      const foot = doc.createElement('div')
+      foot.className = 'dsh-au-toast-foot'
       const close = doc.createElement('button')
       close.type = 'button'
+      close.className = 'dsh-au-btn dsh-au-primary'
       close.textContent = T.toastDismiss
-      close.style.cssText = 'align-self:flex-end;padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.25);background:transparent;color:inherit;cursor:pointer;font-size:12px'
+      foot.appendChild(close)
+      box.appendChild(foot)
+
+      let closed = false
       const dismiss = () => {
+        if (closed) return
+        closed = true
         toastOpen = false
+        try { doc.removeEventListener('keydown', onKey, true) } catch {}
         try { box.remove() } catch {}
       }
+      // Esc 也能关：浮层挡住右下角时，键盘用户不该只能等它自己消失。
+      const onKey = (event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          dismiss()
+        }
+      }
       close.addEventListener('click', dismiss)
-      box.appendChild(close)
+      xBtn.addEventListener('click', dismiss)
+      try { doc.addEventListener('keydown', onKey, true) } catch {}
       doc.body.appendChild(box)
       // 不点也不会一直挂着：15 秒后自己消失，省得挡住下面的界面。
       setTimeout(dismiss, 15000)
@@ -1453,6 +1639,8 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
+        // 样式表只注入一次；先把类挂上去，第一帧就是最终样子，不会闪一下。
+        installStyles()
         // 提醒跟着插件一起上、一起卸：ctx.effect 收的是清理函数。
         if (typeof ctx.effect === 'function') ctx.effect(startUpdateNotifier, 'dsh-aupdate: update notices')
         // key 的格式是「包名#条目id」：本插件在 cordis.patch.yml 里的条目 id 就是包名本身，

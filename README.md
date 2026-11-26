@@ -139,6 +139,12 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 同一份界面还挂在**设置 → 插件更新**里，是独立的一页，不用先去插件页翻这张卡。
 读写走 `/api/dsh-aupdate/{state,run,rollback,logs}`。
 
+版面按 `dsh-cost-meter` 的设置页组织：一栏一栏的分区卡片、小号分区标题、浅一档的说明
+文字，主/次两级小按钮；「上一次」不再是一串用 `·` 拼起来的句子，而是三张统计卡
+（上次检查 / 检查包数 / 可更新）加一个状态徽标。颜色与边框全部取自宿主主题变量
+（`--dsw-alias-*`），亮色暗色都对得上；样式表只注入一次，选择器全带 `dsh-au-` 前缀，
+不碰宿主和其它插件的样式。
+
 ### 勾选插件，而不是手写包名
 
 `exclude` 原来要一行一个包名地敲。现在整页里是一张勾选清单，直接列出这个 profile
@@ -212,6 +218,9 @@ stargazers）与「分享」（复制项目地址到剪贴板，任何环境都�
 同一批更新只提醒一次：这批更新的签名记在 `localStorage` 里，刷新页面不会重复弹。
 关掉「发现更新时提醒我」就完全不弹，日志和设置页照常记录——提醒只是别让它装完你
 还不知道，不是唯一的告知渠道。
+
+提醒卡沿用同一套版式：标题行 + `×`、可滚动的插件清单、「知道了」主按钮，按 Esc 也能关；
+`prefers-reduced-motion` 下不播进场动画。
 
 提醒用的是原生 DOM 浮层，不是新的槽位：槽位只在宿主页挂载时才渲染，而提醒要能在
 会话、插件页、设置页都出现。
@@ -408,6 +417,13 @@ immediately without a restart. A number field fires per keystroke; that does not
 one request per character. The same UI is also its own page under
 **Settings → Plugin updates**, so it is not buried in the plugins page.
 
+The layout follows the `dsh-cost-meter` settings page: stacked section cards, small section
+headings, one-step-muted secondary text and two button tiers. "Last run" is no longer a run
+of sentences glued with `·` but three stat cards (last check / packages checked / updates)
+plus a status badge. Colours and borders come from the host theme variables
+(`--dsw-alias-*`), so light and dark both hold; the stylesheet is injected once and every
+selector is `dsh-au-` prefixed, so no host or other plugin rule is touched.
+
 `exclude` is a checkbox list of the plugins actually installed in this profile, with
 their installed versions, instead of a textarea you had to type package names into.
 Search narrows the list; Select all / Clear only touch the rows currently shown, so
@@ -444,7 +460,10 @@ When a check finds updates, a notice appears in the bottom-right corner listing 
 plugin and its current → new version; past eight it adds "and N more", and it closes
 itself after 15 seconds. Long package names are truncated on the name side so the
 versions stay visible, and past six entries the list scrolls. The Last run card on the
-settings page lists the same plugins and version pairs. Each batch is announced once — the signature is kept in
+settings page lists the same plugins and version pairs. The notice uses the same card
+language: a title row with `×`, a scrollable plugin list and a primary "Got it" button;
+`Esc` closes it too, and the entrance animation is skipped under `prefers-reduced-motion`.
+Each batch is announced once — the signature is kept in
 `localStorage` — and turning "Tell me when updates are found" off silences it entirely
 while the log and settings page keep recording.
 
