@@ -219,8 +219,18 @@ stargazers）与「分享」（复制项目地址到剪贴板，任何环境都�
 关掉「发现更新时提醒我」就完全不弹，日志和设置页照常记录——提醒只是别让它装完你
 还不知道，不是唯一的告知渠道。
 
-提醒卡沿用同一套版式：标题行 + `×`、可滚动的插件清单、「知道了」主按钮，按 Esc 也能关；
-`prefers-reduced-motion` 下不播进场动画。
+提醒卡照 `dsh-cost-meter` 的「峰/谷切换提醒」做：最上面是**圆点徽标**（已更新 / 可更新），
+下面标题行带 `×`，再一句正文说明「装好就地生效，不用重启」，然后是可滚动的插件清单和
+右对齐的「知道了」主按钮；按 Esc 也能关，`prefers-reduced-motion` 下不播进场动画。
+
+**「已更新」只在真的装完之后说**。`lastRun.updates` 记的是「发现了哪些新版本」——自动安装
+被关掉、被空闲门槛让开、或者装失败时它照样有值。所以徽标、标题和「上一次」的统计卡都改看
+`installed`（去掉带 `!failed` 的条目）算出来的「真装成了几个」：装成了说「已更新 N 个」，
+只查到不动手说「可更新 N 个」，两个数字不会互相冒充。
+
+「上一次」里的时间显示成 `26/11/26 12:38`（两位年/月/日 + 时:分，本地时区）。秒不显示，
+因为统计卡里它只会把数字挤窄；年月日的顺序也写死成「年/月/日」，不跟 `Intl` 的
+区域顺序走，中文环境下不会跳成 `2026/11/26`。
 
 提醒用的是原生 DOM 浮层，不是新的槽位：槽位只在宿主页挂载时才渲染，而提醒要能在
 会话、插件页、设置页都出现。
@@ -460,9 +470,24 @@ When a check finds updates, a notice appears in the bottom-right corner listing 
 plugin and its current → new version; past eight it adds "and N more", and it closes
 itself after 15 seconds. Long package names are truncated on the name side so the
 versions stay visible, and past six entries the list scrolls. The Last run card on the
-settings page lists the same plugins and version pairs. The notice uses the same card
-language: a title row with `×`, a scrollable plugin list and a primary "Got it" button;
-`Esc` closes it too, and the entrance animation is skipped under `prefers-reduced-motion`.
+settings page lists the same plugins and version pairs. The notice follows the
+`dsh-cost-meter` peak/off-peak switch alert: a **dot badge** at the top (Updated /
+Update available), a title row with `×`, one body line saying it was applied in place
+without a restart, then the scrollable plugin list and a right-aligned primary "Got it"
+button. `Esc` closes it too, and the entrance animation is skipped under
+`prefers-reduced-motion`.
+
+**"Updated" is only claimed once an install actually happened.** `lastRun.updates` records
+which new versions were *found* — it is populated even when auto-install is off, when the
+idle gate holds the run back, or when an install fails. The badge, the notice title and the
+Last run stat card therefore read `installed` (minus entries ending in `!failed`): a real
+install says "N updated", a check-only run says "N can update", and neither number
+impersonates the other.
+
+The Last run timestamp renders as `26/11/26 12:38` — two-digit year/month/day plus
+hour:minute in local time. Seconds are dropped because they only squeeze the stat card, and
+the field order is fixed to year/month/day rather than following `Intl`'s locale order, so a
+Chinese locale does not produce `2026/11/26`.
 Each batch is announced once — the signature is kept in
 `localStorage` — and turning "Tell me when updates are found" off silences it entirely
 while the log and settings page keep recording.

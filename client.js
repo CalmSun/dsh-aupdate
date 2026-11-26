@@ -70,6 +70,7 @@ window.__ModuleLoader__.load({
         secSchedule: '调度与范围',
         lastChecked: '上次检查',
         lastUpdates: '可更新',
+        lastUpdated: '已更新',
         unavailable: '读不到设置：后端路由没起来（插件仍会按默认设置自动更新）',
         retry: '重试',
         save: '保存',
@@ -90,6 +91,8 @@ window.__ModuleLoader__.load({
         checked: '检查了',
         packages: '个包',
         updates: '个可更新',
+        updatedUnit: '个已更新',
+        updatedHint: '个插件',
         upToDate: '全部都是最新的',
         enabled: '启用定时检查',
         enabledHint: '关掉之后不再自动跑，设置页仍然可用',
@@ -162,7 +165,12 @@ window.__ModuleLoader__.load({
         langAuto: '跟随系统',
         langZh: '中文',
         langEn: 'English',
-        toastTitle: '{n} 个插件可以更新',
+        toastTitle: '{n} 个插件已更新',
+        toastTitleFound: '{n} 个插件可更新',
+        toastBadge: '已更新',
+        toastBadgeFound: '可更新',
+        toastBody: '装好就地生效，不用重启；下面是这一轮换掉的版本。',
+        toastBodyFound: '下面是能升级到的新版本；自动安装关掉时只会检查，不会动手。',
         toastMore: '还有 {n} 个',
         toastDismiss: '知道了',
         keepTitle: '保留期限',
@@ -185,6 +193,7 @@ window.__ModuleLoader__.load({
         rolledBack: '已回滚',
         policy: '更新策略',
         minutes: '分钟',
+        min: '分钟',
         scope: '这些设置只影响本机这个 profile',
         about: '关于 aupdate',
         aboutVersion: '版本',
@@ -208,6 +217,7 @@ window.__ModuleLoader__.load({
         secSchedule: 'Schedule and scope',
         lastChecked: 'Last check',
         lastUpdates: 'Updates',
+        lastUpdated: 'Updated',
         unavailable: 'Cannot read settings: the backend route is not up (defaults still apply)',
         retry: 'Retry',
         save: 'Save',
@@ -228,6 +238,8 @@ window.__ModuleLoader__.load({
         checked: 'checked',
         packages: 'packages',
         updates: 'updates',
+        updatedUnit: 'updated',
+        updatedHint: 'plugins',
         upToDate: 'everything is current',
         enabled: 'Scheduled checks',
         enabledHint: 'Turn off to stop automatic runs; this page keeps working',
@@ -300,7 +312,12 @@ window.__ModuleLoader__.load({
         langAuto: 'Follow the system',
         langZh: '中文',
         langEn: 'English',
-        toastTitle: '{n} plugin(s) can update',
+        toastTitle: '{n} plugin(s) updated',
+        toastTitleFound: '{n} plugin(s) can update',
+        toastBadge: 'Updated',
+        toastBadgeFound: 'Update available',
+        toastBody: 'Applied in place, no restart needed. Here is what changed this round.',
+        toastBodyFound: 'Newer versions are available. With auto-install off this only checks; nothing is installed.',
         toastMore: 'and {n} more',
         toastDismiss: 'Got it',
         keepTitle: 'Retention',
@@ -322,6 +339,7 @@ window.__ModuleLoader__.load({
         rollbackFailed: 'Rollback failed',
         rolledBack: 'rolled back',
         policy: 'Update policy',
+        minutes: 'minutes',
         min: 'min',
         scope: 'These settings apply to this profile only',
         about: 'About aupdate',
@@ -408,17 +426,12 @@ window.__ModuleLoader__.load({
       if (typeof iso !== 'string' || iso === '') return ''
       const when = new Date(iso)
       if (Number.isNaN(when.getTime())) return iso
-      try {
-        return new Intl.DateTimeFormat(LOCALE, {
-          year: 'numeric', month: '2-digit', day: '2-digit',
-          hour: '2-digit', minute: '2-digit', second: '2-digit',
-          hour12: false,
-        }).format(when)
-      } catch {
-        const pad = (n) => String(n).padStart(2, '0')
-        return when.getFullYear() + '-' + pad(when.getMonth() + 1) + '-' + pad(when.getDate()) +
-          ' ' + pad(when.getHours()) + ':' + pad(when.getMinutes()) + ':' + pad(when.getSeconds())
-      }
+      // 26/11/26 12:38：两位年/月/日 + 时:分，秒不显示。
+      // 「上一次检查」这类时间看到分就够，秒只会把统计卡挤窄；
+      // 走本地时区取值，不用 Intl 的日期顺序（中文环境会排成 2026/11/26）。
+      const pad = (n) => String(n).padStart(2, '0')
+      return pad(when.getFullYear() % 100) + '/' + pad(when.getMonth() + 1) + '/' + pad(when.getDate()) +
+        ' ' + pad(when.getHours()) + ':' + pad(when.getMinutes())
     }
 
     /**
@@ -572,11 +585,10 @@ window.__ModuleLoader__.load({
 .dsh-au-badge.run{color:var(--dsw-alias-state-business-primary,#4d6bfe);border-color:color-mix(in oklch,var(--dsw-alias-state-business-primary,#4d6bfe),transparent 55%);background:color-mix(in oklch,var(--dsw-alias-state-business-primary,#4d6bfe),transparent 90%)}
 
 .dsh-au-input{width:96px;padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:13px;text-align:right;transition:border-color .15s}
-.dsh-au-area{width:100%;min-height:58px;padding:6px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:12.5px;resize:vertical;transition:border-color .15s}
 .dsh-au-select{padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:13px;min-width:132px;transition:border-color .15s}
 .dsh-au-search{padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:12.5px;transition:border-color .15s}
-.dsh-au-input:focus,.dsh-au-area:focus,.dsh-au-select:focus,.dsh-au-search:focus{outline:none;border-color:var(--dsw-alias-state-business-primary,#4d6bfe)}
-.dsh-au-input:disabled,.dsh-au-select:disabled,.dsh-au-area:disabled{opacity:.55}
+.dsh-au-input:focus,.dsh-au-select:focus,.dsh-au-search:focus{outline:none;border-color:var(--dsw-alias-state-business-primary,#4d6bfe)}
+.dsh-au-input:disabled,.dsh-au-select:disabled{opacity:.55}
 
 .dsh-au-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsh-au-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 11px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:transparent;color:inherit;font:inherit;font-size:12.5px;cursor:pointer;transition:background .15s,border-color .15s,opacity .15s}
@@ -605,18 +617,24 @@ window.__ModuleLoader__.load({
 .dsh-au-link:hover{color:var(--dsw-alias-state-business-primary,#4d6bfe);border-color:currentColor}
 .dsh-au-linkext{margin-left:3px;opacity:.5}
 
-.dsh-au-toast{position:fixed;right:16px;bottom:16px;z-index:2147483000;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;width:340px;max-width:calc(100vw - 32px);padding:14px 15px;border-radius:12px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.28));background:var(--dsw-alias-toast-bg,#f7f7f8);color:var(--dsw-alias-label-primary,#1f2328);box-shadow:0 12px 32px rgba(0,0,0,.24);font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;animation:dsh-au-in .18s ease-out}
-.dsh-au-toast-head{display:flex;align-items:center;gap:8px}
-.dsh-au-toast-title{flex:1 1 auto;min-width:0;font-weight:600}
-.dsh-au-toast-x{flex:0 0 auto;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:16px;line-height:1;opacity:.6;cursor:pointer;transition:background .15s,opacity .15s}
+/* 通知卡：照 dsh-cost-meter 的「峰/谷切换提醒」做。
+ * 那张卡是「圆点徽标 + 标题 + 正文 + 右对齐按钮」，并按事件换主色；
+ * 这里同一结构用于「发现可更新」，主色取 business 蓝，边框和投影都走主题。 */
+.dsh-au-toast{--au-toast-accent:var(--dsw-alias-state-business-primary,#4d6bfe);position:fixed;right:16px;bottom:16px;z-index:2147483000;display:flex;flex-direction:column;gap:9px;box-sizing:border-box;width:340px;max-width:calc(100vw - 32px);padding:14px 16px;border-radius:14px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.28));background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-toast-bg,#f7f7f8));color:var(--dsw-alias-label-primary,#1f2328);box-shadow:0 14px 36px #00000038;font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;animation:dsh-au-in .22s cubic-bezier(.2,.8,.2,1)}
+.dsh-au-toast-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--au-toast-accent)}
+.dsh-au-toast-badge:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 0 4px color-mix(in srgb,currentColor 16%,transparent);flex:0 0 auto}
+.dsh-au-toast-head{display:flex;align-items:flex-start;gap:8px}
+.dsh-au-toast-title{flex:1 1 auto;min-width:0;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary,#1f2328);line-height:1.4}
+.dsh-au-toast-x{flex:0 0 auto;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;margin:-2px -4px 0 0;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:16px;line-height:1;opacity:.6;cursor:pointer;transition:background .15s,opacity .15s}
 .dsh-au-toast-x:hover{opacity:1;background:var(--dsw-alias-bg-mask-2,rgba(128,128,128,.14))}
+.dsh-au-toast-body{color:var(--dsw-alias-label-secondary,rgba(128,128,128,1));line-height:1.55;font-size:12.5px}
 .dsh-au-toast-list{display:flex;flex-direction:column;gap:2px;max-height:190px;overflow:auto;margin:0 -4px}
 .dsh-au-toast-item{display:flex;align-items:baseline;gap:8px;padding:3px 6px;border-radius:6px;background:var(--dsw-alias-bg-mask-1,rgba(128,128,128,.08))}
-.dsh-au-toast-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-au-toast-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary,inherit)}
 .dsh-au-toast-ver{flex:0 0 auto;font-size:11.5px;color:var(--dsw-alias-label-tertiary,rgba(128,128,128,.95));font-variant-numeric:tabular-nums}
 .dsh-au-toast-more{font-size:11.5px;color:var(--dsw-alias-label-caption,rgba(128,128,128,.85))}
-.dsh-au-toast-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-@keyframes dsh-au-in{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
+.dsh-au-toast-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:2px}
+@keyframes dsh-au-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.dsh-au-toast{animation:none}}
 `
 
@@ -648,7 +666,6 @@ window.__ModuleLoader__.load({
       label: 'dsh-au-label',
       hint: 'dsh-au-hint',
       input: 'dsh-au-input',
-      area: 'dsh-au-area',
       select: 'dsh-au-select',
       search: 'dsh-au-search',
       actions: 'dsh-au-actions',
@@ -661,7 +678,6 @@ window.__ModuleLoader__.load({
       stat: 'dsh-au-stat',
       statK: 'dsh-au-stat-k',
       statV: 'dsh-au-stat-v',
-      badge: 'dsh-au-badge',
       check: 'dsh-au-check',
       logBox: 'dsh-au-log',
       logTime: 'dsh-au-logtime',
@@ -1146,6 +1162,7 @@ window.__ModuleLoader__.load({
       }
 
       const last = state?.lastRun
+      const applied = appliedCount(last)
 
       return h('div', { className: S.wrap },
         h('div', { className: S.head },
@@ -1286,9 +1303,12 @@ window.__ModuleLoader__.load({
               h('span', { className: S.hint }, T.packages),
             ),
             h('div', { className: S.stat },
-              h('span', { className: S.statK }, T.lastUpdates),
-              h('span', { className: S.statV }, String(last.updates?.length ?? 0)),
-              h('span', { className: S.hint }, (last.updates?.length ?? 0) > 0 ? T.updates : T.upToDate),
+              h('span', { className: S.statK }, applied > 0 ? T.lastUpdated : T.lastUpdates),
+              h('span', { className: S.statV }, String(applied > 0 ? applied : (last.updates?.length ?? 0))),
+              // 卡片里标题已经是「已更新」，副标题只补量词，不再重复一遍「已更新」。
+              h('span', { className: S.hint }, applied > 0
+                ? T.updatedHint
+                : (last.updates?.length ?? 0) > 0 ? T.updates : T.upToDate),
             ),
           ),
           // 原因只说一遍：徽标承接状态词，正文承接句子，两者不重复同一句话。
@@ -1457,9 +1477,11 @@ window.__ModuleLoader__.load({
           ? (T.enabled + '：' + T.off)
           : last === null || last === undefined
             ? T.never
-            : (last.updates?.length ?? 0) > 0
-              ? (last.updates?.length ?? 0) + ' ' + T.updates
-              : T.upToDate
+            : appliedCount(last) > 0
+              ? appliedCount(last) + ' ' + T.updatedUnit
+              : (last.updates?.length ?? 0) > 0
+                ? (last.updates?.length ?? 0) + ' ' + T.updates
+                : T.upToDate
         return h('span', { className: S.status }, text)
     }
 
@@ -1507,6 +1529,19 @@ window.__ModuleLoader__.load({
       return { name, versions: from + ' → ' + to }
     }
 
+    /**
+     * 这一轮「真的换掉了几个版本」。
+     *
+     * lastRun.updates 是「发现了哪些新版本」，安装被关掉、被让开、装失败时它照样有值。
+     * 界面上说「已更新 N 个」就必须是装成了的，否则把「查到 4 个」写成「更新了 4 个」
+     * 是在撒谎。installed 里失败的条目带 ' !failed'，要减掉。
+     */
+    function appliedCount(last) {
+      if (last === null || last === undefined) return 0
+      const rows = Array.isArray(last.installed) ? last.installed : []
+      return rows.filter((row) => typeof row === 'string' && !row.endsWith('!failed')).length
+    }
+
     function updateSignature(updates) {
       return (Array.isArray(updates) ? updates : [])
         .map((item) => describeUpdate(item))
@@ -1516,7 +1551,7 @@ window.__ModuleLoader__.load({
         .join('|')
     }
 
-    function showUpdateToast(updates) {
+    function showUpdateToast(updates, applied) {
       if (toastOpen) return
       const doc = typeof document === 'undefined' ? null : document
       if (doc === null || doc.body === null) return
@@ -1531,12 +1566,19 @@ window.__ModuleLoader__.load({
       box.setAttribute('role', 'status')
       box.setAttribute('aria-live', 'polite')
 
-      // 头部：标题 + × —— 和 cost-meter 的引导卡同一套「标题行 + 关闭」结构。
+      // 结构与 cost-meter 的「峰/谷切换提醒」一致：圆点徽标 → 标题行（含 ×）
+      // → 一句正文 → 清单 → 右对齐按钮。徽标是那张卡最好认的一处，这里复用它。
+      const badge = doc.createElement('div')
+      badge.className = 'dsh-au-toast-badge'
+      badge.textContent = applied > 0 ? T.toastBadge : T.toastBadgeFound
+      box.appendChild(badge)
+
       const head = doc.createElement('div')
       head.className = 'dsh-au-toast-head'
       const title = doc.createElement('div')
       title.className = 'dsh-au-toast-title'
-      title.textContent = T.toastTitle.replace('{n}', String(rows.length))
+      // 真的装完了才说「已更新」；只查到、没动手时说「可更新」，别把「发现」说成「装了」。
+      title.textContent = (applied > 0 ? T.toastTitle : T.toastTitleFound).replace('{n}', String(rows.length))
       const xBtn = doc.createElement('button')
       xBtn.type = 'button'
       xBtn.className = 'dsh-au-toast-x'
@@ -1545,6 +1587,11 @@ window.__ModuleLoader__.load({
       head.appendChild(title)
       head.appendChild(xBtn)
       box.appendChild(head)
+
+      const body = doc.createElement('div')
+      body.className = 'dsh-au-toast-body'
+      body.textContent = applied > 0 ? T.toastBody : T.toastBodyFound
+      box.appendChild(body)
 
       const list = doc.createElement('div')
       list.className = 'dsh-au-toast-list'
@@ -1620,7 +1667,7 @@ window.__ModuleLoader__.load({
               const sig = updateSignature(updates)
               if (sig !== notifiedMark()) {
                 markNotified(sig)
-                showUpdateToast(updates)
+                showUpdateToast(updates, appliedCount(state?.lastRun))
               }
             }
           }
