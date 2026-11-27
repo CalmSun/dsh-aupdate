@@ -1229,6 +1229,11 @@ window.__ModuleLoader__.load({
       useEffect(() => () => {
         if (timerRef.current !== null) clearTimeout(timerRef.current)
       }, [])
+      // 显示开关一改就刷镜像：就地重载是在 1.2 秒后发生的，那时 apply() 读的
+      // 就是这份镜像——不跟着改，切换会看起来「没生效」，要再加载一次才对。
+      useEffect(() => {
+        if (draft !== null) writeDisplay(draft)
+      }, [draft])
 
 
       /** 把后端进度翻成一行中文/英文；没进度就退回普通「正在检查」。 */
