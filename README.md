@@ -206,6 +206,28 @@ stargazers）与「分享」（复制项目地址到剪贴板，任何环境都�
 一律 503。不用「只认回环地址」这种判据：浏览器里任何网页都能向 127.0.0.1 发请求。
 `/state` 和 `/logs` 也照样要过，因为它们分别会吐全量设置和读磁盘上的日志文件。
 
+## 版本管理
+
+「插件」页顶栏多了一个「版本管理」标签：列出每个已装插件、已装版本，以及该插件的全部已发布
+版本；点某一版就直接切过去。走的是和定时更新同一条安装路径——安装、回读磁盘上的版本、记一条
+更新记录、就地生效——所以切完能在「更新记录」里看到，也能再回滚回来。
+
+每个版本先和这台宿主的 DSH 版本比一次：装不了的版本标红、按钮禁用（宿主的闸门是在 bundle
+已经卸下之后才拒绝的，不能让它走到那一步）。版本列表按包按需拉，不进首屏：整页一次拉一排
+包的 packument，在镜像上会慢到没法用。
+
+## 安装源与兼容性预检
+
+设置页的「安装源」有三档预设加一个自定义：**跟随 pnpm**（默认，一个字节都不改）/ 官方源 /
+大陆镜像 / 自定义 `http(s)` 地址。选了之后，查版本和装包都走这个源；装包只把这个源写进
+子进程的 `npm_config_registry`，不动 `~/.npmrc`，也不改 pnpm 自己的配置。
+
+用了镜像就会顺手比一次官方源：「已经是最新」有可能只是镜像还没同步。落后的那些写进「上一次」
+卡片，按名字列出「镜像 x.y.z → 官方 a.b.c」。
+
+「装前检查 DSH 兼容性」默认开着：真要装某个版本之前，读一次该版本的 manifest（几 KB），按
+`engines.dsh`（没有才看 `@deepseek-ai/dsh*` 的 peer）和当前宿主版本比一遍。装不了的不进
+安装队列，日志留一行。**读不到 DSH 版本时不拦**——宁可漏拦，也不要按猜的版本误拦。
 ## 更新提醒
 
 发现可更新版本时，界面右下角浮一条提醒，列出插件名和「当前 → 新」版本；超过 8 条
@@ -464,6 +486,34 @@ once and, like every other setting, is persisted immediately. The choice is stor
 `~/.dsh/aupdate-settings.json` (key `lang`), so another browser or machine opens the page
 in the same language. Wording only — it changes no update behaviour.
 
+## Version manager
+
+The plugins page gains a **Versions** tab: it lists every installed plugin, the version you have,
+and every published version of it. Click one and it switches. The switch uses the same install
+path as the scheduled cycle — install, read the version back from disk, append a history row,
+apply in place — so it shows up in Update history and can be rolled back again.
+
+Each version is compared against this host's DSH version first: versions that cannot run here are
+marked and their button disabled (the host's gate only refuses after the bundle is gone, so it
+must not be allowed to get that far). Version lists are fetched per package on demand, never on
+first paint: fetching packuments for a whole page of packages is unusably slow on a mirror.
+
+## Registry and compatibility pre-check
+
+Under Settings, **Registry** has three presets plus a custom value: **Follow pnpm** (the default,
+which changes nothing) / Official / China mirror / a custom `http(s)` URL. Once picked, both
+version lookups and installs use it; an install only passes it to the child process as
+`npm_config_registry`, so `~/.npmrc` and pnpm's own config are never touched.
+
+When a mirror is in use the official registry is checked too, because "already up to date" may
+only mean the mirror has not synced yet. Those are listed in the Last run card as
+"mirror x.y.z → upstream a.b.c".
+
+**Check DSH compatibility first** (on by default) reads the target version's manifest (a few KB)
+before installing and compares `engines.dsh` (falling back to the `@deepseek-ai/dsh*` peer range)
+against the running host. Unusable versions are kept out of the install queue and leave a log
+line. When the DSH version cannot be read, **nothing is blocked** — a missed block is better than
+blocking on a guessed version.
 ### Update notices
 
 When a check finds updates, a notice appears in the bottom-right corner listing each

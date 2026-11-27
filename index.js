@@ -234,6 +234,22 @@ function makeLogTemplates(lang) {
       ? `清理${kind}：删掉 ${rows} 条超过 ${days} 天的`
       : `Cleaned ${kind}: removed ${rows} entr${rows === 1 ? 'y' : 'ies'} older than ${days} day(s)`),
     cleanSkipped: (kind) => (zh ? `${kind}没有需要清理的` : `Nothing to clean in ${kind}`),
+    compatBlocked: (name, version, range, dsh) => (zh
+      ? `${name}@${version} 跳过：要求 DSH ${range}，当前 ${dsh}`
+      : `${name}@${version} skipped: needs DSH ${range}, host is ${dsh}`),
+    mirrorLag: (name, upstream, mirror) => (zh
+      ? `${name} 镜像落后：镜像 ${mirror}，官方 ${upstream}`
+      : `${name} mirror lag: mirror ${mirror}, upstream ${upstream}`),
+    registryPicked: (source) => (zh ? `安装源：${source}` : `Registry: ${source}`),
+    switching: (name, from, to) => (zh
+      ? '切换版本：' + name + ' ' + from + ' → ' + to
+      : 'Switching: ' + name + ' ' + from + ' → ' + to),
+    switched: (name, from, to) => (zh
+      ? '已切换：' + name + ' ' + from + ' → ' + to
+      : 'Switched: ' + name + ' ' + from + ' → ' + to),
+    reloaded: (status, reason) => (zh
+      ? '就地生效：' + status + (reason ? '（' + reason + '）' : '')
+      : 'Apply in place: ' + status + (reason ? ' (' + reason + ')' : '')),
     ready: (minutes, autoApply, hotReload) => (zh
       ? `已就绪：每 ${minutes} 分钟检查一次，自动安装=${onOff(autoApply)}，就地生效=${onOff(hotReload)}`
       : `Ready: every ${minutes} min, autoApply=${onOff(autoApply)}, hotReload=${onOff(hotReload)}`),
@@ -269,6 +285,15 @@ function makeReasonTemplates(lang) {
     noInstalled: () => (zh ? '读不到已装版本' : 'Installed version unreadable'),
     suppressed: (stamp) => (zh ? `上次安装失败，${stamp} UTC 前不再重试` : `Install failed before; not retried until ${stamp} UTC`),
     lookupFailed: (msg) => (zh ? `查不到：${msg}` : `Lookup failed: ${msg}`),
+    compatBlocked: (version, range, dsh) => (zh
+      ? `${version} 要求 DSH ${range}，当前宿主是 ${dsh}，没装`
+      : `${version} needs DSH ${range}; this host is ${dsh}, not installed`),
+    incompatible: (range, dsh) => (zh
+      ? `已装的版本要求 DSH ${range}，当前宿主是 ${dsh}`
+      : `The installed version needs DSH ${range}; this host is ${dsh}`),
+    mirrorLag: (upstream, mirror) => (zh
+      ? `镜像还停在 ${mirror}，官方源已经是 ${upstream}`
+      : `The mirror still has ${mirror}; upstream is at ${upstream}`),
     agentsBusy: (n) => (zh ? `${n} 个子任务在跑` : `${n} subagent(s) running`),
     sessionActive: (age) => (zh ? `会话在 ${ageText(age)} 分钟前还在写入` : `Session was written ${ageText(age)} min ago`),
     noDeps: () => (zh ? '这个 profile 里没有可检查的依赖' : 'No dependencies to check in this profile'),
@@ -514,6 +539,8 @@ const OVERRIDEABLE = [
   'enabled', 'autoApply', 'hotReload', 'checkOnStart', 'idleOnly', 'notify',
   'intervalMinutes', 'firstDelayMinutes', 'exclude',
   'allowMajor', 'allowPrerelease',
+  // 安装源与兼容性预检（0.8.0 借自 dsh-plugin-upgrader）。
+  'registryMode', 'registryUrl', 'compatCheck',
   // 调度：四种节奏 + 失败抑制时长。这些键不写进 Config schema，
   // 只活在覆盖层里——Config 的字段类型是宿主校验的，加错一个类型
   // 会在加载期直接抛错，而覆盖层是我们自己的文件，改坏了只影响这一项。
@@ -706,6 +733,13 @@ function settingsOf(config) {
     // 发现可更新版本时是否弹出提醒。默认开着：定时更新最容易出的事，是它一直在
     // 后台装，用户根本不知道装了什么、装到哪一版。
     notify: booleanSetting(config, 'notify', true),
+    // 安装源：默认跟随 pnpm，选别的才动（生效值见 registryOf）。
+    registryMode: registryModeOf(config),
+    registryUrl: typeof config?.registryUrl === 'string' ? config.registryUrl : '',
+    registry: registryOf(config),
+    // 兼容性预检：装之前先看目标版本声明的 DSH 范围。默认开——宿主闸门是在
+    // bundle 已经卸下之后才拒绝的，等它拒绝就已经晚了。
+    compatCheck: booleanSetting(config, 'compatCheck', true),
     intervalMinutes: numberSetting(config, 'intervalMinutes', 1440, 10, 10080),
     firstDelayMinutes: numberSetting(config, 'firstDelayMinutes', 5, 0, 1440),
     exclude: stringList(config?.exclude),
@@ -863,6 +897,13 @@ function readLastRun() {
       ? raw.reason
       : (raw.reason !== null && typeof raw.reason === 'object' ? raw.reason : ''),
     snapshot: typeof raw.snapshot === 'string' ? raw.snapshot : '',
+    // 0.7.x 及更早没有这两项；缺了就是空数组，不当成坏数据。
+    lagged: Array.isArray(raw.lagged)
+      ? raw.lagged.filter((row) => row !== null && typeof row === 'object' && typeof row.name === 'string')
+      : [],
+    blocked: Array.isArray(raw.blocked)
+      ? raw.blocked.filter((row) => row !== null && typeof row === 'object' && typeof row.name === 'string')
+      : [],
   }
 }
 
@@ -1090,6 +1131,343 @@ function compareVersions(a, b) {
 function distTagFor(pkgName) {
   return NEXT_TAG_SCOPES.some((prefix) => pkgName.startsWith(prefix)) ? 'next' : 'latest'
 }
+
+/* ── 安装源 / 兼容性预检 / 镜像落后 ─────────────────────────────────────
+ *
+ * 这三样是从 dsh-plugin-upgrader 学来的（差距清单见 docs/BORROWED-FROM-UPGRADER.md），
+ * 但按 aupdate 自己的量级实现：
+ *
+ * - 安装源：没选就不干预——dist-tags 走官方源、pnpm 用自己配置的源，和改造前
+ *   一个字节都不差；选了才把 dist-tags 和 npm_config_registry 一起换过去。
+ * - 兼容性预检：只在「已经决定要装这个版本」时读一次该版本的 manifest（几 KB），
+ *   不像竞品那样为了版本列表去拉整份 packument（24 个包 2.88 MB）。
+ * - 镜像落后：只有用了镜像才多查一次官方源的 dist-tags，默认零额外请求。
+ */
+const OFFICIAL_REGISTRY = 'https://registry.npmjs.org'
+const REGISTRY_MIRROR = 'https://registry.npmmirror.com'
+const REGISTRY_MODES = ['pnpm', 'npmjs', 'mirror', 'custom']
+
+function registryModeOf(config) {
+  const mode = typeof config?.registryMode === 'string' ? config.registryMode : ''
+  return REGISTRY_MODES.includes(mode) ? mode : 'pnpm'
+}
+
+/**
+ * 生效的源；'' 表示不干预。
+ *
+ * 自定义源只认 http(s) 并去掉尾部斜杠：后头是直接拼 URL 的，不校验的话一个
+ * file: 或者带空格的串会变成更难查的「查不到版本」。
+ */
+function registryOf(config) {
+  const mode = registryModeOf(config)
+  if (mode === 'pnpm') return ''
+  if (mode === 'npmjs') return OFFICIAL_REGISTRY
+  if (mode === 'mirror') return REGISTRY_MIRROR
+  const raw = typeof config?.registryUrl === 'string' ? config.registryUrl.trim().replace(/\/+$/u, '') : ''
+  return /^https?:\/\/[^\s]+$/iu.test(raw) ? raw : ''
+}
+
+/** 查 dist-tags 用的基地址：没选源也走官方源（和改造前一致）。 */
+function tagsBaseOf(registry) {
+  return registry === '' ? OFFICIAL_REGISTRY : registry
+}
+
+/**
+ * 当前宿主真正在跑的 DSH 版本。
+ *
+ * 兼容性闸门比的是 @deepseek-ai/dsh-app-boot 的版本——入口加载的是哪一份，闸门
+ * 就用哪一份。桌面版入口在 app.asar 里，命令行启动看到的是 profile 里那份，两者
+ * 可能不是同一个构建；从入口往上找是两种布局都对读法，读一个写死的路径会在两者
+ * 不一致时骗人。读不到就返回 null：宁可漏拦，也不要按猜的版本误拦。
+ */
+let dshVersionMemo = null
+const RUNTIME_PACKAGE = '@deepseek-ai/dsh-app-boot'
+
+function dshVersion() {
+  if (dshVersionMemo !== null) return dshVersionMemo
+  const versionAt = (file) => {
+    const raw = readJson(file)
+    return raw !== null && typeof raw.version === 'string' && raw.version.trim() !== '' ? raw.version.trim() : null
+  }
+  const beside = (entry) => {
+    let dir = dirname(entry)
+    for (let depth = 0; depth < 10; depth += 1) {
+      const found = versionAt(join(dir, 'node_modules', RUNTIME_PACKAGE, 'package.json'))
+      if (found !== null) return found
+      const up = dirname(dir)
+      if (up === dir) return null
+      dir = up
+    }
+    return null
+  }
+  try {
+    for (const entry of process.argv.slice(1, 7)) {
+      if (typeof entry !== 'string' || !/[.]c?js$/iu.test(entry)) continue
+      const found = beside(entry)
+      if (found !== null) {
+        dshVersionMemo = found
+        return found
+      }
+    }
+  } catch {}
+  return null
+}
+
+/**
+ * 一个 range 是否接受这个版本。
+ *
+ * 只实现真正会遇到的那几种写法（比较符组合、^、~、裸版本号、x/星号）。遇到
+ * 看不懂的（||、连字符区间、nested）一律放行：这套逻辑的用途是「提前拦住装不上
+ * 的版本」，漏拦只是回到改造前的行为，误拦却会让一个本来能升的包永远不升。
+ */
+function satisfiesRange(range, version) {
+  const text = String(range ?? '').trim()
+  if (text === '') return true
+  if (parseVersion(version) === null) return true
+  if (text.includes('||')) return true
+  const parts = text.split(/\s+/u).filter(Boolean)
+  if (parts.length === 0) return true
+  for (const part of parts) if (!satisfiesOne(part, version)) return false
+  return true
+}
+
+function satisfiesOne(part, version) {
+  const match = /^(>=|<=|>|<|=|\^|~)?\s*(.+)$/u.exec(part)
+  if (match === null) return true
+  const op = match[1] ?? ''
+  const wantedRaw = match[2].trim()
+  const wanted = parseVersion(wantedRaw)
+  const got = parseVersion(version)
+  if (got === null) return true
+  // 1.x / 1.2.x / * 这类认不出完整版本号的，当通配处理。
+  if (wanted === null) return true
+  const cmp = compareVersions(version, wantedRaw)
+  if (cmp === null) return true
+  const [gotMajor, gotMinor] = got.core
+  const [wantMajor, wantMinor] = wanted.core
+  switch (op) {
+    case '>=': return cmp >= 0
+    case '>': return cmp > 0
+    case '<=': return cmp <= 0
+    case '<': return cmp < 0
+    case '=': return cmp === 0
+    case '^':
+      // ^0.2.1 → >=0.2.1 <0.3.0；^1.2.3 → >=1.2.3 <2.0.0
+      if (cmp < 0) return false
+      if (wantMajor > 0) return gotMajor === wantMajor
+      if (wantMinor > 0) return gotMajor === 0 && gotMinor === wantMinor
+      return gotMajor === 0 && gotMinor === 0 && wanted.core[2] === got.core[2]
+    case '~': return cmp >= 0 && gotMajor === wantMajor && gotMinor === wantMinor
+    default: {
+      const segments = wantedRaw.split('.').length
+      if (segments >= 3) return cmp === 0
+      if (segments === 2) return gotMajor === wantMajor && gotMinor === wantMinor
+      return gotMajor === wantMajor
+    }
+  }
+}
+
+/**
+ * 一个已发布版本声明的 DSH 要求。
+ *
+ * 顺序照宿主闸门：有 engines.dsh 就只认它，没有才看 @deepseek-ai/dsh(-*) 的 peer。
+ * 反过来读会把宿主随后会拒绝的版本标成可用，正是这条路径要防的事。
+ */
+const DSH_PEER = '@deepseek-ai/dsh'
+const DSH_PEER_PREFIX = '@deepseek-ai/dsh-'
+
+function dshRequirementOf(manifest) {
+  if (manifest === null || typeof manifest !== 'object') return null
+  const engines = manifest.engines
+  if (engines !== null && typeof engines === 'object' && typeof engines.dsh === 'string' && engines.dsh.trim() !== '') {
+    return { range: engines.dsh.trim().replace(/^workspace:/u, ''), from: 'engines.dsh' }
+  }
+  const peers = manifest.peerDependencies
+  if (peers === null || typeof peers !== 'object') return null
+  const rank = (key) => (key === DSH_PEER ? 0 : key.startsWith(DSH_PEER_PREFIX) ? 1 : 2)
+  const entries = Object.entries(peers)
+    .filter(([key, value]) => rank(key) < 2 && typeof value === 'string' && value !== '' && !value.startsWith('workspace:'))
+    .sort((a, b) => rank(a[0]) - rank(b[0]))
+  if (entries.length === 0) return null
+  return { range: entries[0][1].trim(), from: 'peer ' + entries[0][0] }
+}
+
+const manifestCache = new Map()
+
+/** 单个已发布版本的 manifest（几 KB），带缓存。 */
+async function versionManifestOf(pkgName, version, registry) {
+  const key = tagsBaseOf(registry) + '|' + pkgName + '|' + version
+  const hit = manifestCache.get(key)
+  if (hit !== undefined && Date.now() - hit.at < TAG_TTL_MS) return hit.value
+  const url = tagsBaseOf(registry) + '/' + pkgName.replace('/', '%2f') + '/' + encodeURIComponent(version)
+  const response = await fetch(url, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!response.ok) throw new Error('registry ' + response.status)
+  const value = await response.json()
+  manifestCache.set(key, { at: Date.now(), value })
+  if (manifestCache.size > 200) {
+    const oldest = manifestCache.keys().next()
+    if (!oldest.done) manifestCache.delete(oldest.value)
+  }
+  return value
+}
+
+/**
+ * 这个版本能不能装在这台宿主上。
+ *
+ * 返回 null 表示「说不了」：DSH 版本读不到、manifest 查不到、这个包根本没声明
+ * 要求——三种情况都不拦，照常装。只有明确不满足时才返回 ok:false。
+ */
+async function compatOf(pkgName, version, registry) {
+  const dsh = dshVersion()
+  if (dsh === null) return null
+  let manifest
+  try {
+    manifest = await versionManifestOf(pkgName, version, registry)
+  } catch {
+    return null
+  }
+  const need = dshRequirementOf(manifest)
+  if (need === null) return null
+  return { ok: satisfiesRange(need.range, dsh), range: need.range, from: need.from, dsh }
+}
+
+/**
+ * 镜像落后：官方源已经有更新的版本，你在用的镜像还没同步。
+ *
+ * 只比 dist-tags 上那一个标签。镜像模式下每个包多一次很小的请求；不选镜像时
+ * 直接返回 null，一个请求都不发。
+ */
+async function mirrorLagOf(pkgName, registry, mirrorTags) {
+  if (registry === '' || tagsBaseOf(registry) === OFFICIAL_REGISTRY) return null
+  try {
+    const upstream = await registryTags(pkgName, OFFICIAL_REGISTRY)
+    const tag = distTagFor(pkgName)
+    const up = typeof upstream[tag] === 'string' ? upstream[tag] : null
+    const mirror = typeof mirrorTags?.[tag] === 'string' ? mirrorTags[tag] : null
+    if (up === null || mirror === null) return null
+    const cmp = compareVersions(up, mirror)
+    return cmp !== null && cmp > 0 ? { tag, upstream: up, mirror } : null
+  } catch {
+    return null
+  }
+}
+
+/* ── 版本管理 ───────────────────────────────────────────────────────────
+ *
+ * 「插件」页多一个标签页，列每个已装插件的全部已发布版本，可以点到某一版。
+ *
+ * 只读缩略 packument（Accept: application/vnd.npm.install-v1+json）：它保留
+ * versions 里每个版本的 engines/deprecated，正好是这里要判断的东西，而把
+ * readme、tarball 元数据和 maintainer 全砍掉了。整份 packument 最大单包 26 MB，
+ * 缩略版 10 MB，常见插件只有几 KB —— 这个差别决定了能不能一页列一排包的版本。
+ */
+const MAX_VERSIONS = 80
+const versionsCache = new Map()
+const VERSIONS_TTL_MS = 5 * 60 * 1000
+const ABBREVIATED_ACCEPT = 'application/vnd.npm.install-v1+json'
+
+async function publishedVersions(pkgName, registry) {
+  const base = tagsBaseOf(registry)
+  const key = base + '|' + pkgName
+  const hit = versionsCache.get(key)
+  if (hit !== undefined && Date.now() - hit.at < VERSIONS_TTL_MS) return hit.value
+  const url = base + '/' + pkgName.replace('/', '%2f')
+  const response = await fetch(url, {
+    headers: { accept: ABBREVIATED_ACCEPT },
+    // 慢的包（几千个版本那种）在镜像上要几秒；超时就回报失败，不拖住整页。
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!response.ok) throw new Error('registry ' + response.status)
+  const doc = await response.json()
+  const packs = doc?.versions !== null && typeof doc?.versions === 'object' ? doc.versions : {}
+  const tags = doc?.['dist-tags'] !== null && typeof doc?.['dist-tags'] === 'object' ? doc['dist-tags'] : {}
+  const dsh = dshVersion()
+  const rows = []
+  for (const [version, manifest] of Object.entries(packs)) {
+    if (parseVersion(version) === null) continue
+    const need = dshRequirementOf(manifest)
+    rows.push({
+      version,
+      // 宿主闸门读的是同一个字段，这里算出来的结论和它一致。
+      need: need === null ? '' : need.range,
+      ok: need === null || dsh === null ? null : satisfiesRange(need.range, dsh),
+      deprecated: typeof manifest?.deprecated === 'string' && manifest.deprecated !== '',
+    })
+  }
+  rows.sort((a, b) => (compareVersions(b.version, a.version) ?? 0))
+  const tag = distTagFor(pkgName)
+  const value = {
+    name: pkgName,
+    latest: typeof tags.latest === 'string' ? tags.latest : '',
+    tag,
+    tagVersion: typeof tags[tag] === 'string' ? tags[tag] : '',
+    total: rows.length,
+    versions: rows.slice(0, MAX_VERSIONS),
+  }
+  versionsCache.set(key, { at: Date.now(), value })
+  if (versionsCache.size > 60) {
+    const oldest = versionsCache.keys().next()
+    if (!oldest.done) versionsCache.delete(oldest.value)
+  }
+  return value
+}
+
+/** 正在切版本时挡住定时轮次，反过来也一样：pnpm 是按 profile 上一把锁的。 */
+let switching = null
+
+/**
+ * 把某个插件切到指定版本。
+ *
+ * 和整轮更新走同一条安装路径（installOne → 回读磁盘版本 → 记历史），只是不带
+ * 调度、抑制和单轮上限。兼容性预检在这里同样生效：宿主的闸门要等 bundle 卸下
+ * 之后才拒绝，切到装不上的版本会留下一个半装的样子。
+ */
+async function switchVersion(ctxRef, pkgName, version) {
+  if (switching !== null || running !== null) return { ok: false, reason: { code: 'runBusy' } }
+  const settings = settingsOf(ctxRef.config)
+  const profileDir = profileDirOf(ctxRef.ctx)
+  const profileName = basename(profileDir)
+  const current = installedVersion(profileDir, pkgName, null)
+  if (current === version) return { ok: true, unchanged: true, from: current, to: version, detail: '' }
+  const compat = await compatOf(pkgName, version, settings.registry)
+  if (compat !== null && !compat.ok) {
+    return { ok: false, from: current, to: version, reason: { code: 'compatBlocked', args: [version, compat.range, compat.dsh] } }
+  }
+  const runner = cliRunner()
+  if (runner === null) return { ok: false, from: current, to: version, reason: { code: 'noCli' } }
+  const lock = takeProfileLock(profileDir, new Date())
+  if (!lock.ok) return { ok: false, from: current, to: version, reason: lock.reason }
+  switching = { name: pkgName, version }
+  try {
+    writeLog('switching', [pkgName, current ?? '?', version])
+    const outcome = await installOne(runner, profileName, profileDir, pkgName, version, settings.registry)
+    if (!outcome.ok) return { ok: false, from: current, to: version, detail: outcome.detail ?? '' }
+    clearFailure(pkgName, version)
+    appendHistory({
+      at: new Date().toISOString(),
+      name: pkgName,
+      from: current ?? '',
+      to: version,
+      tag: '',
+      profile: profileName,
+      rolledBack: false,
+    })
+    writeLog('switched', [pkgName, current ?? '?', version])
+    // 切完就地换代码：和回滚同一条路径（requiredBefore 传空），不重启就能用上。
+    let reload = null
+    if (settings.hotReload) {
+      reload = await hotApply(ctxRef.ctx, [])
+      writeLog('reloaded', [reload?.status ?? 'none', reload?.reason ?? ''])
+    }
+    return { ok: true, from: current, to: version, detail: outcome.detail ?? '', reload: reload?.status ?? 'off' }
+  } finally {
+    switching = null
+    releaseProfileLock(lock)
+  }
+}
 function profileDirOf(ctx) {
   const base = propOf(serviceOf(ctx, 'hmr'), 'baseDir')
   if (typeof base === 'string' && base !== '') return base
@@ -1195,18 +1573,19 @@ function installedVersion(profileDir, pkgName, spec) {
 const tagCache = new Map()
 const TAG_TTL_MS = 10 * 60 * 1000
 
-function tagCacheGet(pkgName) {
-  const hit = tagCache.get(pkgName)
+/** 缓存键带上源：同一个包在两个源上的答案可以不一样，不能混用。 */
+function tagCacheGet(key) {
+  const hit = tagCache.get(key)
   if (hit === undefined) return null
   if (Date.now() - hit.at > TAG_TTL_MS) {
-    tagCache.delete(pkgName)
+    tagCache.delete(key)
     return null
   }
   return hit.tags
 }
 
-function tagCacheSet(pkgName, tags) {
-  tagCache.set(pkgName, { at: Date.now(), tags })
+function tagCacheSet(key, tags) {
+  tagCache.set(key, { at: Date.now(), tags })
   // 缓存不设上限会随着 profile 换包一直长；几百个包就够用，超出就丢最旧的。
   if (tagCache.size > 400) {
     const oldest = tagCache.keys().next()
@@ -1214,18 +1593,20 @@ function tagCacheSet(pkgName, tags) {
   }
 }
 
-async function registryTags(pkgName) {
-  const cached = tagCacheGet(pkgName)
+async function registryTags(pkgName, base = OFFICIAL_REGISTRY) {
+  const key = base + '|' + pkgName
+  const cached = tagCacheGet(key)
   if (cached !== null) return cached
-  const url = 'https://registry.npmjs.org/-/package/' + pkgName.replace('/', '%2f') + '/dist-tags'
+  const url = base + '/-/package/' + pkgName.replace('/', '%2f') + '/dist-tags'
   const response = await fetch(url, {
     headers: { accept: 'application/json' },
-    signal: AbortSignal.timeout(10000),
+    // 镜像慢起来很慢，但一个页面不该被它拖住：8 秒拿不到就回报失败。
+    signal: AbortSignal.timeout(base === OFFICIAL_REGISTRY ? 10000 : 8000),
   })
   if (!response.ok) throw new Error('registry ' + response.status)
   const tags = await response.json()
   if (tags === null || typeof tags !== 'object') throw new Error('没有 dist-tags')
-  tagCacheSet(pkgName, tags)
+  tagCacheSet(key, tags)
   return tags
 }
 /**
@@ -1304,11 +1685,15 @@ function runOnce(command, args, options) {
   })
 }
 
-async function installOne(runner, profileName, profileDir, pkgName, version) {
+async function installOne(runner, profileName, profileDir, pkgName, version, registry = '') {
   const args = [...runner.prefix, 'plugin', '--profile', profileName, 'add', pkgName + '@' + version]
+  // 选了安装源就让 pnpm 也走这个源：npm_config_registry 是 pnpm 也认的变量，
+  // 只作用于这个子进程，不动 profile 的 .npmrc，也不动 pnpm 自己的配置。
+  const env = { ...runner.env, CI: '1' }
+  if (registry !== '') env.npm_config_registry = registry
   const result = await runOnce(runner.command, args, {
     cwd: profileDir,
-    env: { ...runner.env, CI: '1' },
+    env,
     shell: runner.shell === true,
     timeoutMs: INSTALL_TIMEOUT_MS,
   })
@@ -1745,6 +2130,9 @@ async function runCycle(mode, ctxRef) {
       report.reason = { code: 'noDeps' }
       return report
     }
+    // 镜像落后 / 兼容性拦下的明细：这一轮结束后写进 lastRun，界面按名字展示。
+    const lagged = []
+    const blocked = []
     for (let i = 0; i < deps.length; i += FETCH_CONCURRENCY) {
       // 每批之间让出一次事件循环：同步读 package.json 和结果合批都在主线程上，
       // 一口气跑完 24 个包会让界面掉帧。setImmediate 只让一次，代价可以忽略。
@@ -1753,9 +2141,17 @@ async function runCycle(mode, ctxRef) {
       const answers = await Promise.all(batch.map(async (dep) => {
         const current = installedVersion(profileDir, dep.name, dep.spec)
         try {
-          const tags = await registryTags(dep.name)
+          // 换了源就按那个源查：缓存键带 base，两个源的答案不会串。
+          const tags = await registryTags(dep.name, tagsBaseOf(settings.registry))
           const tag = distTagFor(dep.name)
           const target = typeof tags[tag] === 'string' ? tags[tag] : null
+          // 用了镜像时顺手比一次官方源。它不改变这一轮的判断，但「已经是最新」
+          // 这时候可能是假的——镜像没同步，官方源其实已经发了新版本。
+          const lag = await mirrorLagOf(dep.name, settings.registry, tags)
+          if (lag !== null) {
+            lagged.push({ name: dep.name, installed: current, ...lag })
+            writeLog('mirrorLag', [dep.name, lag.upstream, lag.mirror])
+          }
           if (target === null) return { name: dep.name, current, why: { code: 'noTag', args: [tag] } }
           if (current === null) return { name: dep.name, current, why: { code: 'noInstalled' } }
           const verdict = upgradeVerdict(target, current, tag, settings)
@@ -1763,6 +2159,16 @@ async function runCycle(mode, ctxRef) {
             // 「已经是最新」不算异常，不必出现在 skipped 里。
             if (verdict.code === 'latest') return null
             return { name: dep.name, current, target, why: verdict.why }
+          }
+          // 兼容性预检：宿主闸门要等 bundle 卸下之后才拒绝，那时候快照已经白拍了、
+          // 插件也处于「卸了一半」的样子。这里先问一句，装不了就不进队列。
+          if (settings.compatCheck) {
+            const compat = await compatOf(dep.name, target, settings.registry)
+            if (compat !== null && !compat.ok) {
+              blocked.push({ name: dep.name, target, need: compat.range, dsh: compat.dsh, from: compat.from })
+              writeLog('compatBlocked', [dep.name, target, compat.range, compat.dsh])
+              return { name: dep.name, current, target, why: { code: 'compatBlocked', args: [target, compat.range, compat.dsh] } }
+            }
           }
           // 这个版本之前装失败过、还在抑制窗口内：这一轮不再试它。
           const until = suppressedUntil(dep.name, target, settings, new Date())
@@ -1787,6 +2193,8 @@ async function runCycle(mode, ctxRef) {
         else report.skipped.push(answer)
       }
     }
+    report.lagged = lagged
+    report.blocked = blocked
     writeLog('checked', [report.checked, report.updates.length])
     if (report.updates.length === 0) {
       report.reason = { code: 'noUpdates' }
@@ -1852,6 +2260,9 @@ async function runCycle(mode, ctxRef) {
       status: report.status,
       at: report.finishedAt,
       checked: report.checked,
+      // 这一轮「镜像落后」与「兼容性拦下」的明细：界面要能指着名字说清为什么。
+      lagged: Array.isArray(report.lagged) ? report.lagged : [],
+      blocked: Array.isArray(report.blocked) ? report.blocked : [],
       // 结构化存：界面要分开排「包名」和「版本」，句子做不到。
       updates: report.updates.map((item) => ({ name: item.name, from: item.current ?? '', to: item.target })),
       installed: report.installed.map((item) => item.name + '@' + item.version + (item.ok ? '' : ' !failed')),
@@ -1886,7 +2297,7 @@ async function applyUpdates(ctxRef, report, settings, runner, profileDir, profil
       slowTimer.unref?.()
       let outcome
       try {
-        outcome = await installOne(runner, profileName, profileDir, update.name, update.target)
+        outcome = await installOne(runner, profileName, profileDir, update.name, update.target, settings.registry)
       } finally {
         clearTimeout(slowTimer)
       }
@@ -1988,7 +2399,7 @@ async function rollbackOne(ctxRef, entryName) {
   if (!lock.ok) return { ok: false, reason: lock.reason }
   let outcome
   try {
-    outcome = await installOne(runner, profileName, profileDir, row.name, row.from)
+    outcome = await installOne(runner, profileName, profileDir, row.name, row.from, settings.registry)
   } finally {
     releaseProfileLock(lock)
   }
@@ -2205,6 +2616,10 @@ function settingsSnapshot(config, ctxRef, lang) {
     overrides: readOverrides(),
     // 「关于 aupdate」显示用；随 package.json 自动更新，无需手改前端。
     version: pluginVersion,
+    // 这台宿主真正在跑的 DSH 版本：兼容性预检就是按它比的，界面也要能看见它。
+    dshVersion: dshVersion(),
+    // 生效的安装源（'' = 跟随 pnpm）。
+    registry: settings.registry,
     // 运行中的进度：没在跑时为 null，设置页据此决定要不要显示进度条。
     progress: progress === null ? null : { ...progress },
     lastRun: lastRun === null ? null : {
@@ -2214,6 +2629,8 @@ function settingsSnapshot(config, ctxRef, lang) {
       checked: lastRun.checked,
       updates: lastRun.updates,
       installed: lastRun.installed,
+      lagged: Array.isArray(lastRun.lagged) ? lastRun.lagged : [],
+      blocked: Array.isArray(lastRun.blocked) ? lastRun.blocked : [],
       reload: lastRun.reload,
       snapshot: lastRun.snapshot ?? '',
     },
@@ -2296,6 +2713,23 @@ function registerRoutes(scope, ctxRef) {
           sendJson(res, 200, readLogTail(url.searchParams.get('lines'), url.searchParams.get('lang')))
           return
         }
+        if (suffix === '/versions') {
+          // 一次只看一个包的版本列表：整页一次拉一排包，镜像上会很慢。
+          const target = url.searchParams.get('name') ?? ''
+          if (target === '') {
+            sendJson(res, 400, { error: 'missing name' })
+            return
+          }
+          try {
+            const live = settingsOf(ctxRef.config)
+            const listed = await publishedVersions(target, live.registry)
+            const profileDir = profileDirOf(ctxRef.ctx)
+            sendJson(res, 200, { ...listed, installed: installedVersion(profileDir, target, null) })
+          } catch (error) {
+            sendJson(res, 502, { error: oneLine(error?.message ?? error, 200) })
+          }
+          return
+        }
         sendJson(res, 404, { error: 'unknown endpoint' })
         return
       }
@@ -2319,6 +2753,21 @@ function registerRoutes(scope, ctxRef) {
             writeLog('rescheduleFailed', [oneLine(error?.message ?? error, 200)])
           }
           sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef, url.searchParams.get('lang')))
+          return
+        }
+        if (suffix === '/switch') {
+          const body = await readBody(req)
+          const target = typeof body?.name === 'string' ? body.name : ''
+          const version = typeof body?.version === 'string' ? body.version : ''
+          if (target === '' || version === '') {
+            sendJson(res, 400, { error: 'missing name or version' })
+            return
+          }
+          const outcome = await switchVersion(ctxRef, target, version)
+          sendJson(res, outcome.ok ? 200 : 409, {
+            ...outcome,
+            reason: outcome.reason === undefined ? '' : renderReason(outcome.reason, url.searchParams.get('lang')),
+          })
           return
         }
         if (suffix === '/rollback') {

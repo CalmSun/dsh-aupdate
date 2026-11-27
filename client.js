@@ -128,6 +128,41 @@ window.__ModuleLoader__.load({
         allowHint: '每行一个包名；留空表示全部包都参与',
         allowMajor: '允许跨大版本',
         allowMajorHint: '关闭后只在同一主版本内升级（0.x 插件多半会因此长期不动）',
+        registry: '安装源',
+        registryHint: '查版本和装包都走这个源。默认跟随 pnpm 自己的配置，一个字节都不改。',
+        regPnpm: '跟随 pnpm',
+        regNpmjs: '官方源',
+        regMirror: '大陆镜像',
+        regCustom: '自定义',
+        regUrl: '自定义源地址',
+        regUrlHint: 'http(s)://…；填的不是 http(s) 就退回「跟随 pnpm」',
+        compatCheck: '装前检查 DSH 兼容性',
+        compatCheckHint: '宿主是等插件卸下之后才拒绝装不上的版本的；提前拦下，快照不会白拍、也不会留下半装的样子',
+        dshVersion: 'DSH 版本',
+        lagTitle: '镜像落后',
+        lagNote: '{n} 个插件的镜像还没同步，官方源已经有新版本',
+        blockedNote: '{n} 个版本在这台 DSH 上装不了',
+        versionsTab: '版本管理',
+        versionsTitle: '版本管理',
+        versionsSubtitle: '每个已装插件的全部已发布版本，点一下就切过去',
+        versionsSearch: '搜索插件名',
+        versionsCount: '{n} 个插件',
+        versionsShow: '版本',
+        versionsHide: '收起',
+        versionsSwitch: '切到这一版',
+        versionsCurrent: '当前',
+        versionsLatest: '最新',
+        versionsInstalled: '已装',
+        versionsBlocked: '这台 DSH 装不了',
+        versionsDeprecated: '已废弃',
+        versionsNeed: '要求 DSH {r}',
+        versionsLoading: '读取版本…',
+        versionsFailed: '读不到版本列表',
+        versionsEmpty: '没有匹配的插件',
+        versionsDone: '已切到 {v}',
+        versionsNoop: '已经是这一版',
+        versionsFail: '切换失败',
+        versionsTotal: '共 {n} 个版本',
       maxPerCycle: '一轮最多装几个',
       maxPerCycleHint: '0 表示不限。装包会一直占着 pnpm 锁，限一个数就把单次占用封顶，剩下的下一轮接着装',
       sessionIdle: '会话静默（分钟）',
@@ -275,6 +310,41 @@ window.__ModuleLoader__.load({
         allowHint: 'one package name per line; empty means every package',
         allowMajor: 'Allow major upgrades',
         allowMajorHint: 'Off keeps upgrades inside one major; 0.x plugins would rarely move',
+        registry: 'Registry',
+        registryHint: 'Version lookups and installs both use this source. The default follows pnpm own config and changes nothing.',
+        regPnpm: 'Follow pnpm',
+        regNpmjs: 'Official',
+        regMirror: 'China mirror',
+        regCustom: 'Custom',
+        regUrl: 'Custom registry URL',
+        regUrlHint: 'http(s)://…; anything else falls back to Follow pnpm',
+        compatCheck: 'Check DSH compatibility first',
+        compatCheckHint: 'The host refuses unusable versions only after the bundle is gone; stopping earlier keeps the snapshot and the profile clean',
+        dshVersion: 'DSH version',
+        lagTitle: 'Mirror behind',
+        lagNote: '{n} plugin(s) not synced to the mirror yet; upstream already has newer',
+        blockedNote: '{n} version(s) cannot be installed on this DSH',
+        versionsTab: 'Versions',
+        versionsTitle: 'Version manager',
+        versionsSubtitle: 'Every published version of every installed plugin; click one to switch',
+        versionsSearch: 'Search plugin names',
+        versionsCount: '{n} plugins',
+        versionsShow: 'Versions',
+        versionsHide: 'Hide',
+        versionsSwitch: 'Switch to this',
+        versionsCurrent: 'current',
+        versionsLatest: 'latest',
+        versionsInstalled: 'installed',
+        versionsBlocked: 'not installable on this DSH',
+        versionsDeprecated: 'deprecated',
+        versionsNeed: 'needs DSH {r}',
+        versionsLoading: 'Loading versions…',
+        versionsFailed: 'Could not read the version list',
+        versionsEmpty: 'Nothing matches',
+        versionsDone: 'Switched to {v}',
+        versionsNoop: 'Already on this version',
+        versionsFail: 'Switch failed',
+        versionsTotal: '{n} versions',
       maxPerCycle: 'Installs per cycle',
       maxPerCycleHint: '0 means no limit. pnpm holds a lock for the whole install, so a cap bounds how long the profile stays busy; the rest wait for the next cycle',
       sessionIdle: 'Session quiet window (minutes)',
@@ -586,8 +656,9 @@ window.__ModuleLoader__.load({
 
 .dsh-au-input{width:96px;padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:13px;text-align:right;transition:border-color .15s}
 .dsh-au-select{padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:13px;min-width:132px;transition:border-color .15s}
+.dsh-au-url{width:240px;max-width:100%;padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:12.5px;transition:border-color .15s}
 .dsh-au-search{padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.32));background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;font:inherit;font-size:12.5px;transition:border-color .15s}
-.dsh-au-input:focus,.dsh-au-select:focus,.dsh-au-search:focus{outline:none;border-color:var(--dsw-alias-state-business-primary,#4d6bfe)}
+.dsh-au-input:focus,.dsh-au-select:focus,.dsh-au-search:focus,.dsh-au-url:focus{outline:none;border-color:var(--dsw-alias-state-business-primary,#4d6bfe)}
 .dsh-au-input:disabled,.dsh-au-select:disabled{opacity:.55}
 
 .dsh-au-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -613,6 +684,16 @@ window.__ModuleLoader__.load({
 .dsh-au-logtime{color:var(--dsw-alias-label-caption,rgba(128,128,128,.8));font-variant-numeric:tabular-nums}
 .dsh-au-logtext{color:inherit}
 
+/* 版本管理：一行版本 = 版本号 + 标记 + 右侧动作。 */
+.dsh-au-vhead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.dsh-au-vlist{display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));border-radius:10px;padding:4px;margin-top:2px}
+.dsh-au-vrow{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:6px;min-width:0}
+.dsh-au-vrow:hover{background:var(--dsw-alias-bg-mask-1,rgba(128,128,128,.08))}
+.dsh-au-vnum{flex:0 0 auto;min-width:92px;font-variant-numeric:tabular-nums;font-size:12.5px}
+.dsh-au-vact{flex:0 0 auto;margin-left:auto}
+.dsh-au-dim{color:var(--dsw-alias-label-caption,rgba(128,128,128,.85));font-size:11.5px}
+.dsh-au-bad{color:var(--dsw-alias-state-error-primary,#d9534f);font-size:11.5px}
+.dsh-au-pivot{flex:0 0 auto;font-size:11px;line-height:1.6;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.28));color:var(--dsw-alias-label-secondary,inherit)}
 .dsh-au-link{color:inherit;text-decoration:none;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.4));padding-bottom:1px;transition:color .15s,border-color .15s}
 .dsh-au-link:hover{color:var(--dsw-alias-state-business-primary,#4d6bfe);border-color:currentColor}
 .dsh-au-linkext{margin-left:3px;opacity:.5}
@@ -668,6 +749,15 @@ window.__ModuleLoader__.load({
       input: 'dsh-au-input',
       select: 'dsh-au-select',
       search: 'dsh-au-search',
+      url: 'dsh-au-url',
+      vhead: 'dsh-au-vhead',
+      vlist: 'dsh-au-vlist',
+      vrow: 'dsh-au-vrow',
+      vnum: 'dsh-au-vnum',
+      vact: 'dsh-au-vact',
+      dim: 'dsh-au-dim',
+      bad: 'dsh-au-bad',
+      pivot: 'dsh-au-pivot',
       actions: 'dsh-au-actions',
       btn: 'dsh-au-btn',
       btnPrimary: 'dsh-au-btn dsh-au-primary',
@@ -1244,6 +1334,43 @@ window.__ModuleLoader__.load({
           h(SwitchRow, { label: T.allowMajor, hint: T.allowMajorHint, value: draft.allowMajor, onChange: (v) => patch('allowMajor', v) }),
           h(SwitchRow, { label: T.allowPrerelease, hint: T.allowPrereleaseHint, value: draft.allowPrerelease, onChange: (v) => patch('allowPrerelease', v) }),
         ),
+        // 安装源 + 兼容性预检（0.8.0 借自 dsh-plugin-upgrader，见 docs/BORROWED-FROM-UPGRADER.md）。
+        h('div', { className: S.card },
+          h('h3', { className: S.h }, T.registry),
+          h(SelectRow, {
+            label: T.registry,
+            hint: T.registryHint,
+            value: draft.registryMode ?? 'pnpm',
+            onChange: (v) => patch('registryMode', v),
+            options: [
+              { value: 'pnpm', label: T.regPnpm },
+              { value: 'npmjs', label: T.regNpmjs },
+              { value: 'mirror', label: T.regMirror },
+              { value: 'custom', label: T.regCustom },
+            ],
+          }),
+          (draft.registryMode ?? 'pnpm') === 'custom'
+            ? h('div', { className: S.row },
+                h('div', { className: S.labelBox },
+                  h('span', { className: S.label }, T.regUrl),
+                  h('span', { className: S.hint }, T.regUrlHint),
+                ),
+                h('input', {
+                  type: 'url',
+                  value: draft.registryUrl ?? '',
+                  placeholder: 'https://registry.example.com',
+                  onChange: (event) => patch('registryUrl', event.target.value),
+                  className: S.url,
+                }),
+              )
+            : null,
+          h(SwitchRow, { label: T.compatCheck, hint: T.compatCheckHint, value: draft.compatCheck !== false, onChange: (v) => patch('compatCheck', v) }),
+          // 这两项是只读的现场信息：出问题时第一句话就是「你的 DSH 是哪个版本、走的哪个源」。
+          h('div', { className: S.meta },
+            h('span', null, T.dshVersion + ': ' + (state?.dshVersion ?? '—')),
+            h('span', null, T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry)),
+          ),
+        ),
         h('div', { className: S.card },
           h('h3', { className: S.h }, T.keepTitle),
           h('p', { className: S.note }, T.keepHint),
@@ -1339,6 +1466,16 @@ window.__ModuleLoader__.load({
               )),
             )
           })(),
+          // 镜像落后和「装不了」都要按名字说出来：只报「已是最新」或「一个没装上」，
+          // 用户没法知道该换源还是该升 DSH。
+          (last?.lagged?.length ?? 0) > 0
+            ? h('p', { className: S.note }, T.lagNote.replace('{n}', String(last.lagged.length)) + ' · ' +
+                last.lagged.slice(0, 3).map((row) => row.name + ' ' + (row.mirror ?? '?') + ' → ' + (row.upstream ?? '?')).join('，'))
+            : null,
+          (last?.blocked?.length ?? 0) > 0
+            ? h('p', { className: S.note }, T.blockedNote.replace('{n}', String(last.blocked.length)) + ' · ' +
+                last.blocked.slice(0, 3).map((row) => row.name + '@' + (row.target ?? '?')).join('，'))
+            : null,
           runHint ? h('span', { className: S.status }, runHint) : null,
         ),
         // 更新记录：谁、从哪到哪、什么时候、成没成，以及回滚入口。
@@ -1683,6 +1820,196 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * 「版本管理」标签页。
+     *
+     * 和设置页的分工：设置页管「什么时候自动升」，这一页管「现在就要某一版」。
+     * 版本列表按包按需拉（一次一个包），不进首屏：整页一次拉一堆包的 packument
+     * 在镜像上会慢到没法用。
+     */
+    function VersionsTab() {
+      useLang()
+      const [state, setState] = useState(null)
+      const [query, setQuery] = useState('')
+      const [openName, setOpenName] = useState('')
+      const [lists, setLists] = useState({})
+      const [loadError, setLoadError] = useState('')
+      const [busy, setBusy] = useState('')
+      const [hint, setHint] = useState('')
+
+      const reload = useCallback(async () => {
+        try {
+          setState(await getState(LANG))
+        } catch {}
+      }, [])
+
+      useEffect(() => { void reload() }, [reload])
+
+      // 切版本可能要好几分钟（pnpm 要校验锁文件），期间才轮询；闲着时一个请求都不发。
+      useEffect(() => {
+        if (busy === '') return undefined
+        const timer = setInterval(async () => {
+          try {
+            setState(await getState(LANG))
+          } catch {}
+        }, 3000)
+        return () => clearInterval(timer)
+      }, [busy])
+
+      const openVersions = useCallback(async (name) => {
+        if (openName === name) {
+          setOpenName('')
+          return
+        }
+        setOpenName(name)
+        setLoadError('')
+        if (lists[name] !== undefined) return
+        try {
+          const response = await fetch(endpoint('versions') + '?name=' + encodeURIComponent(name) + '&lang=' + (LANG === 'en' ? 'en' : 'zh'), {
+            headers: { accept: 'application/json' },
+            cache: 'no-store',
+          })
+          if (!response.ok) throw new Error('versions ' + response.status)
+          const payload = await response.json()
+          setLists((prev) => ({ ...prev, [name]: payload }))
+        } catch {
+          setLoadError(T.versionsFailed)
+        }
+      }, [openName, lists])
+
+      const doSwitch = useCallback(async (name, version) => {
+        if (busy !== '') return
+        setBusy(name + '@' + version)
+        setHint('')
+        try {
+          const response = await fetch(endpoint('switch') + langQuery(), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ name, version }),
+          })
+          const payload = await response.json().catch(() => null)
+          if (response.ok) {
+            setHint(payload?.unchanged === true ? T.versionsNoop : T.versionsDone.replace('{v}', version))
+            // 版本变了，这个包的缓存列表要作废，否则「当前」标记还停在旧版本上。
+            setLists((prev) => {
+              const next = { ...prev }
+              delete next[name]
+              return next
+            })
+            await reload()
+          } else {
+            setHint(T.versionsFail + ' · ' + (payload?.reason || payload?.detail || ('HTTP ' + response.status)))
+          }
+        } catch {
+          setHint(T.versionsFail)
+        } finally {
+          setBusy('')
+        }
+      }, [busy, reload])
+
+      const packages = useMemo(() => {
+        const all = Array.isArray(state?.packages) ? state.packages : []
+        const text = query.trim().toLowerCase()
+        return text === '' ? all : all.filter((item) => String(item.name).toLowerCase().includes(text))
+      }, [state, query])
+
+      const progress = state?.progress
+      const runningText = (() => {
+        if (!progress) return ''
+        if (progress.phase === 'installing' && progress.total > 0) {
+          return T.progressInstall
+            .replace('{n}', String(progress.index))
+            .replace('{m}', String(progress.total))
+            .replace('{name}', String(progress.name || ''))
+        }
+        if (progress.phase === 'applying') return T.progressApply
+        return T.running
+      })()
+
+      return h('div', { className: S.wrap },
+        h('div', { className: S.head },
+          h('h3', { className: S.title }, T.versionsTitle),
+          h('p', { className: S.sub }, T.versionsSubtitle),
+        ),
+        h('div', { className: S.card },
+          h('div', { className: S.vhead },
+            h('input', {
+              type: 'search',
+              value: query,
+              placeholder: T.versionsSearch,
+              onChange: (event) => setQuery(event.target.value),
+              className: S.search,
+              style: { flex: '1 1 200px' },
+            }),
+            h('span', { className: S.hint }, T.versionsCount.replace('{n}', String(packages.length))),
+          ),
+          h('div', { className: S.meta },
+            h('span', null, T.dshVersion + ': ' + (state?.dshVersion ?? '—')),
+            h('span', null, T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry)),
+          ),
+          progress ? h('span', { className: 'dsh-au-badge run' }, runningText) : null,
+          hint ? h('span', { className: S.status }, hint) : null,
+          loadError ? h('p', { className: S.err }, loadError) : null,
+          packages.length === 0
+            ? h('span', { className: S.status }, T.versionsEmpty)
+            : h('div', { className: S.scrollList },
+                packages.map((item) => {
+                  const listed = lists[item.name]
+                  const expanded = openName === item.name
+                  return h('div', { key: item.name, style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+                    h('div', { className: S.row },
+                      h('div', { className: S.labelBox },
+                        h('span', { title: item.name }, item.name),
+                        h('span', { className: S.hint },
+                          T.versionsInstalled + ' ' + (item.version === '' ? '—' : item.version) +
+                          (listed && listed.tagVersion !== '' ? ' · ' + T.versionsLatest + ' ' + listed.tagVersion : '')),
+                      ),
+                      h('button', {
+                        type: 'button',
+                        className: expanded ? S.btn : S.btn,
+                        onClick: () => void openVersions(item.name),
+                      }, expanded ? T.versionsHide : T.versionsShow),
+                    ),
+                    expanded
+                      ? listed === undefined
+                        ? h('span', { className: S.hint }, T.versionsLoading)
+                        : h('div', { className: S.vlist },
+                            h('span', { className: S.dim }, T.versionsTotal.replace('{n}', String(listed.total ?? 0)) +
+                              (listed.latest !== '' ? ' · ' + T.versionsLatest + ' ' + listed.latest : '')),
+                            (listed.versions ?? []).map((row) => {
+                              const isCurrent = row.version === item.version
+                              const blocked = row.ok === false
+                              return h('div', { key: row.version, className: S.vrow },
+                                h('span', { className: S.vnum }, row.version),
+                                isCurrent ? h('span', { className: S.pivot }, T.versionsCurrent) : null,
+                                row.version === listed.latest && !isCurrent ? h('span', { className: S.pivot }, T.versionsLatest) : null,
+                                row.deprecated === true ? h('span', { className: S.dim }, T.versionsDeprecated) : null,
+                                blocked
+                                  ? h('span', { className: S.bad, title: T.versionsNeed.replace('{r}', row.need || '?') }, T.versionsBlocked)
+                                  : null,
+                                h('div', { className: S.vact },
+                                  isCurrent
+                                    ? null
+                                    : h('button', {
+                                        type: 'button',
+                                        className: blocked ? S.btn : S.btnPrimary,
+                                        disabled: blocked || busy !== '',
+                                        title: blocked ? T.versionsNeed.replace('{r}', row.need || '?') : '',
+                                        onClick: () => void doSwitch(item.name, row.version),
+                                      }, busy === item.name + '@' + row.version ? T.running : T.versionsSwitch),
+                                ),
+                              )
+                            }),
+                          )
+                      : null,
+                  )
+                }),
+              ),
+        ),
+        h('span', { className: S.hint }, T.scope),
+      )
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -1711,6 +2038,15 @@ window.__ModuleLoader__.load({
           order: 36,
           label: () => T.pageLabel,
         }, () => h(AutoUpdateCard)))
+
+        // 插件页标签栏多一个「版本管理」：和设置页分工——设置页管「什么时候自动升」，
+        // 这一页管「现在就要某一版」。order 2 排在「已安装/发现」(0) 和市场(1) 之后。
+        ctx.slots.inject('plugins.tab', () => ctx.slots.register({
+          name: 'plugins.tab',
+          id: NS,
+          order: 2,
+          label: () => T.versionsTab,
+        }, () => h(VersionsTab)))
       },
     }
   },
