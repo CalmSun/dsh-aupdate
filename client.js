@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
         saving: '保存中…',
         saved: '已保存',
         savedHint: '新设置立即生效，不用重启',
+        saveIgnored: '这些没存下来：{keys}（后端没有对应处理）',
         failed: '保存失败',
         runNow: '立刻检查',
         running: '正在检查…',
@@ -281,6 +282,7 @@ window.__ModuleLoader__.load({
         saving: 'Saving…',
         saved: 'Saved',
         savedHint: 'Takes effect immediately, no restart',
+        saveIgnored: 'Not stored: {keys} (no backend handling)',
         failed: 'Save failed',
         runNow: 'Check now',
         running: 'Checking…',
@@ -1161,7 +1163,14 @@ window.__ModuleLoader__.load({
           // 只换 state（lastRun、history 这些由服务端算），不回灌草稿：
           // 草稿里可能已经有比这份响应更新的输入。
           setState(next)
-          setSaveHint(T.saved + ' · ' + T.savedHint)
+          // 服务端对「不认识 / 校验不过」的键会静默丢掉，接口却仍然回 200。
+          // 拿回来的快照和刚才提交的值比一下：没变的就是没存进去，别报「已保存」。
+          // exclude 由服务端重排过，不比；它的顺序不影响语义。
+          const ignored = Object.keys(batch).filter((key) => key !== 'exclude' &&
+            JSON.stringify(next?.settings?.[key]) !== JSON.stringify(batch[key]))
+          setSaveHint(ignored.length > 0
+            ? T.saveIgnored.replace('{keys}', ignored.join(', '))
+            : T.saved + ' · ' + T.savedHint)
         } catch {
           // 失败的键补回队列，下次改动会一起重试，不静默吞掉用户的设置。
           pendingRef.current = { ...batch, ...pendingRef.current }

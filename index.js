@@ -241,6 +241,9 @@ function makeLogTemplates(lang) {
       ? `${name} 镜像落后：镜像 ${mirror}，官方 ${upstream}`
       : `${name} mirror lag: mirror ${mirror}, upstream ${upstream}`),
     registryPicked: (source) => (zh ? `安装源：${source}` : `Registry: ${source}`),
+    settingsDropped: (keys) => (zh
+      ? `这些设置没存下来（没有对应的校验分支）：${keys.join(', ')}`
+      : `These settings were not stored (no validation branch): ${keys.join(', ')}`),
     switching: (name, from, to) => (zh
       ? '切换版本：' + name + ' ' + from + ' → ' + to
       : 'Switching: ' + name + ' ' + from + ' → ' + to),
@@ -651,6 +654,20 @@ function writeOverrides(patch) {
       if (LANG_CHOICES.includes(text)) next[key] = text
       continue
     }
+    // 安装源。这两个键是字符串，而下面的兜底只认布尔——0.7.5 到 0.8.3 它们就是
+    // 这样「保存成功、文件里没有」的：POST 返回 200、日志记了 settingsChanged，
+    // 界面上却又弹回默认值。凡是新增字符串键，都必须在这里有一支，没有就被丢掉。
+    if (key === 'registryMode') {
+      const text = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+      if (REGISTRY_MODES.includes(text)) next[key] = text
+      continue
+    }
+    if (key === 'registryUrl') {
+      const text = typeof raw === 'string' ? raw.trim().replace(/\/+$/u, '') : ''
+      // 空串是合法值（清空自定义地址并退回跟随 pnpm）；非空必须是 http(s)。
+      if (text === '' || /^https?:\/\/[^\s]+$/iu.test(text)) next[key] = text
+      continue
+    }
     const bounds = NUMBER_BOUNDS[key]
     if (bounds !== undefined) {
       const value = typeof raw === 'number' ? raw : Number(raw)
@@ -660,6 +677,13 @@ function writeOverrides(patch) {
     }
     if (typeof raw === 'boolean') next[key] = raw
     else if (raw === 'true' || raw === 'false') next[key] = raw === 'true'
+  }
+  // 传了、也是可覆盖的键，但一个都没落下来：记一条，别再静默成功。
+  // 上面那类「字符串键没有分支」的 bug 只有日志能提前暴露。
+  const asked = Object.keys(patch ?? {})
+  const landed = asked.filter((key) => OVERRIDEABLE.includes(key) && next[key] !== undefined)
+  if (asked.length > 0 && landed.length === 0) {
+    writeLog('settingsDropped', [asked])
   }
   const file = settingsPath()
   try {
