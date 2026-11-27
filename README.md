@@ -216,6 +216,24 @@ stargazers）与「分享」（复制项目地址到剪贴板，任何环境都�
 已经卸下之后才拒绝的，不能让它走到那一步）。版本列表按包按需拉，不进首屏：整页一次拉一排
 包的 packument，在镜像上会慢到没法用。
 
+这一页还把 aupdate 自己的设置嵌了进来（工具条上的「设置」），改完不用切回设置页。
+
+工具条从左到右：搜索、检查更新（绕过缓存）、一键升级、升级选中 N 个、注册表、复制诊断、设置。
+顶部三个数字分别是**需处理**（已装版本声明的 DSH 范围不满足，或者读不到已装版本——这些包很可能
+根本没被加载，升级救不了它们）、**可升级**、**已装**。
+
+「注册表」面板列出三档预设，每行能单独测（`/-/ping` 和根地址同时发，谁先答应用谁，整次 5 秒
+封顶），也能直接切过去；自定义源可以填完先测再切。
+
+## 显示位置
+
+设置页有一组开关，决定这个插件挂在哪些地方：**设置 → 插件更新**、**插件页里的那一行**、
+**插件配置页**、**插件页「版本管理」标签**。关掉的那一处干脆不注册槽位，而不是挂上去再渲染成
+空条目。
+
+「挂不挂」是在插件加载时决定的，而那时读不到后端设置，所以选择会在 localStorage 里存一份镜像
+供加载时同步读取；改完开关后插件会**就地重载**一次，新的一组槽位立刻生效，不用重启 DSH。
+
 ## 安装源与兼容性预检
 
 设置页的「安装源」有三档预设加一个自定义：**跟随 pnpm**（默认，一个字节都不改）/ 官方源 /
@@ -497,6 +515,29 @@ Each version is compared against this host's DSH version first: versions that ca
 marked and their button disabled (the host's gate only refuses after the bundle is gone, so it
 must not be allowed to get that far). Version lists are fetched per package on demand, never on
 first paint: fetching packuments for a whole page of packages is unusably slow on a mirror.
+
+This page also embeds aupdate's own settings (the **Settings** button in the toolbar), so there is
+no need to switch back to the settings page.
+
+The toolbar is: search, Check now (bypasses the cache), Upgrade all, Upgrade the N selected,
+Registries, Copy diagnostics, Settings. The three numbers on top are **Needs attention** (the
+installed version declares a DSH range this host does not satisfy, or the installed version is
+unreadable — those bundles are likely not loaded at all, and upgrading cannot fix them),
+**Upgradable**, and **Installed**.
+
+The **Registries** panel lists the three presets, each with its own Test button (`/-/ping` and the
+root URL are fired together and whichever answers first wins, inside a 5 s budget) and a switch; a
+custom URL can be tested before it is used.
+
+## Where it shows
+
+A group of switches decides which surfaces this plugin occupies: **Settings → Plugin updates**,
+**the row in the plugins page**, **the plugin config page**, and **the plugins page Versions tab**.
+A disabled surface is not registered at all, rather than registered and rendered empty.
+
+Whether a slot is registered is decided at plugin load time, when the backend settings are not
+readable, so the choice is mirrored into localStorage for that synchronous read; changing a switch
+reloads the plugin in place, so the new set of slots takes effect without restarting DSH.
 
 ## Registry and compatibility pre-check
 

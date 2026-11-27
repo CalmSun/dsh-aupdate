@@ -541,6 +541,8 @@ const OVERRIDEABLE = [
   'allowMajor', 'allowPrerelease',
   // 安装源与兼容性预检（0.8.0 借自 dsh-plugin-upgrader）。
   'registryMode', 'registryUrl', 'compatCheck',
+  // 显示位置（设置页 / 插件行 / 插件配置页 / 版本管理标签）。
+  'showSettingsSection', 'showPluginsRow', 'showPluginsBundle', 'showVersionsTab',
   // 调度：四种节奏 + 失败抑制时长。这些键不写进 Config schema，
   // 只活在覆盖层里——Config 的字段类型是宿主校验的，加错一个类型
   // 会在加载期直接抛错，而覆盖层是我们自己的文件，改坏了只影响这一项。
@@ -740,6 +742,12 @@ function settingsOf(config) {
     // 兼容性预检：装之前先看目标版本声明的 DSH 范围。默认开——宿主闸门是在
     // bundle 已经卸下之后才拒绝的，等它拒绝就已经晚了。
     compatCheck: booleanSetting(config, 'compatCheck', true),
+    // 显示位置：四个界面各自能被关掉。关掉由客户端在注册槽位时跳过，
+    // 所以改完要重新加载一次插件（POST /state 会自己安排一次就地重载）。
+    showSettingsSection: booleanSetting(config, 'showSettingsSection', true),
+    showPluginsRow: booleanSetting(config, 'showPluginsRow', true),
+    showPluginsBundle: booleanSetting(config, 'showPluginsBundle', true),
+    showVersionsTab: booleanSetting(config, 'showVersionsTab', true),
     intervalMinutes: numberSetting(config, 'intervalMinutes', 1440, 10, 10080),
     firstDelayMinutes: numberSetting(config, 'firstDelayMinutes', 5, 0, 1440),
     exclude: stringList(config?.exclude),
@@ -1517,10 +1525,18 @@ function packageChoices(profileDir, settings) {
     if (/^(link|file|workspace|portal):/iu.test(spec)) continue
     if (!NPM_NAME_RE.test(name)) continue
     const version = installedVersion(profileDir, name, spec)
+    // 已装版本自己声明的 DSH 要求：读的是本地 node_modules 里的 manifest，
+    // 不发任何网络请求。宿主闸门只认它，所以「装不上」的判断要按它来。
+    // 这类包很可能根本没被加载，而升级按钮救不了它，只能换版本或升 DSH。
+    const local = readJson(join(profileDir, 'node_modules', name, 'package.json'))
+    const need = dshRequirementOf(local)
+    const host = dshVersion()
     rows.push({
       name,
       version: typeof version === 'string' ? version : '',
       excluded: skip.has(name),
+      need: need === null ? '' : need.range,
+      ok: need === null || host === null ? null : satisfiesRange(need.range, host),
     })
   }
   // 不能直接用 localeCompare：它的结果跟着系统区域变，同一个 profile 在不同机器上
@@ -2096,10 +2112,10 @@ async function hotApply(ctx, requiredBefore) {
     return { status: 'failed', reason: oneLine(error?.message ?? error, 400) }
   }
 }
-function beginningRun(mode, ctxRef) {
+function beginningRun(mode, ctxRef, options = {}) {
   if (running !== null) return null
   if (mode === 'update') setProgress({ phase: 'checking', index: 0, total: 0, name: '' })
-  const promise = runCycle(mode, ctxRef).finally(() => {
+  const promise = runCycle(mode, ctxRef, options).finally(() => {
     running = null
     clearProgress()
   })
@@ -2107,8 +2123,16 @@ function beginningRun(mode, ctxRef) {
   return promise
 }
 
-async function runCycle(mode, ctxRef) {
+async function runCycle(mode, ctxRef, options = {}) {
   const settings = settingsOf(ctxRef.config)
+  const only = Array.isArray(options.names) ? options.names.filter((item) => typeof item === 'string' && item !== '') : []
+  // 「检查更新」要能绕过缓存：dist-tags 缓存 10 分钟，用户刚在别处发了新版时
+  // 等 10 分钟才看见没有道理。
+  if (options.fresh === true) {
+    tagCache.clear()
+    versionsCache.clear()
+    manifestCache.clear()
+  }
   const report = {
     status: 'done',
     startedAt: new Date().toISOString(),
@@ -2124,7 +2148,9 @@ async function runCycle(mode, ctxRef) {
   try {
     const profileDir = profileDirOf(ctxRef.ctx)
     const profileName = basename(profileDir)
-    const deps = dependencyList(profileDir, settings.exclude)
+    let deps = dependencyList(profileDir, settings.exclude)
+    // 只跑选中的那些：版本管理页的「升级选中」用它，别为了几个包重查整轮。
+    if (only.length > 0) deps = deps.filter((dep) => only.includes(dep.name))
     report.checked = deps.length
     if (deps.length === 0) {
       report.reason = { code: 'noDeps' }
@@ -2740,12 +2766,20 @@ function registerRoutes(scope, ctxRef) {
             sendJson(res, 400, { error: 'bad json' })
             return
           }
+          const before = settingsOf(ctxRef.config)
           const result = writeOverrides(body)
           if (!result.ok) {
             sendJson(res, 500, { error: result.error })
             return
           }
           writeLog('settingsChanged', [Object.keys(body)])
+          // 显示位置是「注册哪些槽位」决定的，改完必须重新加载一次插件才生效。
+          // 这里不重启应用，只让本插件就地重载（和装完包之后做的是同一件事）。
+          const displayChanged = ['showSettingsSection', 'showPluginsRow', 'showPluginsBundle', 'showVersionsTab']
+            .some((key) => before[key] !== settingsOf(ctxRef.config)[key])
+          if (displayChanged && settingsOf(ctxRef.config).hotReload) {
+            setTimeout(() => { void hotApply(ctxRef.ctx, []).catch(() => {}) }, 1200).unref?.()
+          }
           // 改完立刻按新设置重排，否则要等下一次触发才换节奏。
           try {
             if (typeof ctxRef.reschedule === 'function') ctxRef.reschedule()
@@ -2753,6 +2787,25 @@ function registerRoutes(scope, ctxRef) {
             writeLog('rescheduleFailed', [oneLine(error?.message ?? error, 200)])
           }
           sendJson(res, 200, settingsSnapshot(ctxRef.config, ctxRef, url.searchParams.get('lang')))
+          return
+        }
+        if (suffix === '/registry/test') {
+          const body = await readBody(req)
+          const target = typeof body?.url === 'string' ? body.url.trim().replace(/\/+$/u, '') : ''
+          if (!/^https?:\/\/[^\s]+$/iu.test(target)) {
+            sendJson(res, 400, { ok: false, url: target, ms: 0, detail: 'not http(s)' })
+            return
+          }
+          // 两支一起发、谁先答应用谁：/-/ping 在大陆镜像上有时要 15 秒，根地址只要 0.3 秒，
+          // 串行探测会把能用的镜像报成连不上。整次 5 秒封顶。
+          const probe = async (url) => {
+            const response = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5000) })
+            return response.ok
+          }
+          const started = Date.now()
+          const [ping, root] = await Promise.allSettled([probe(target + '/-/ping'), probe(target + '/')])
+          const ok = (ping.status === 'fulfilled' && ping.value === true) || (root.status === 'fulfilled' && root.value === true)
+          sendJson(res, 200, { ok, url: target, ms: Date.now() - started })
           return
         }
         if (suffix === '/switch') {
@@ -2804,7 +2857,10 @@ function registerRoutes(scope, ctxRef) {
         if (suffix === '/run') {
           const body = await readBody(req)
           const mode = body?.mode === 'check' ? 'check' : 'update'
-          const report = await beginningRun(mode, ctxRef)
+          const report = await beginningRun(mode, ctxRef, {
+            names: Array.isArray(body?.names) ? body.names : [],
+            fresh: body?.fresh === true,
+          })
           if (report === null) {
             sendJson(res, 200, { started: false, reason: renderReason({ code: 'alreadyRunning' }, url.searchParams.get('lang')) })
             return

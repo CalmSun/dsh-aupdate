@@ -163,6 +163,31 @@ window.__ModuleLoader__.load({
         versionsNoop: '已经是这一版',
         versionsFail: '切换失败',
         versionsTotal: '共 {n} 个版本',
+        versionsChecks: '检查更新',
+        versionsUpgradeAll: '一键升级',
+        versionsUpgradePicked: '升级选中 {n}',
+        versionsSources: '注册表',
+        versionsSettings: '设置',
+        versionsHideSettings: '收起设置',
+        versionsTest: '测试',
+        versionsTesting: '测试中…',
+        versionsTestOk: '能连上（{ms} ms）',
+        versionsTestFail: '连不上',
+        versionsUse: '切到这个源',
+        versionsCurrentSource: '当前',
+        versionsAttention: '需处理',
+        versionsUpgradable: '可升级',
+        versionsInstalledCount: '已装',
+        versionsCopied: '诊断信息已复制',
+        versionsCopyFail: '复制失败',
+        versionsDiagnostics: '复制诊断',
+        versionsCustomSource: '自定义源',
+        displayGroup: '显示位置',
+        displayHint: '关掉哪一处就不再挂那一处；改动会让插件就地重载一次生效，不用重启 DSH',
+        showSettings: '设置 → 插件更新',
+        showRow: '插件页里的这一行',
+        showBundle: '插件配置页',
+        showTab: '插件页「版本管理」标签',
       maxPerCycle: '一轮最多装几个',
       maxPerCycleHint: '0 表示不限。装包会一直占着 pnpm 锁，限一个数就把单次占用封顶，剩下的下一轮接着装',
       sessionIdle: '会话静默（分钟）',
@@ -345,6 +370,31 @@ window.__ModuleLoader__.load({
         versionsNoop: 'Already on this version',
         versionsFail: 'Switch failed',
         versionsTotal: '{n} versions',
+        versionsChecks: 'Check now',
+        versionsUpgradeAll: 'Upgrade all',
+        versionsUpgradePicked: 'Upgrade {n}',
+        versionsSources: 'Registries',
+        versionsSettings: 'Settings',
+        versionsHideSettings: 'Hide settings',
+        versionsTest: 'Test',
+        versionsTesting: 'Testing…',
+        versionsTestOk: 'Reachable ({ms} ms)',
+        versionsTestFail: 'Unreachable',
+        versionsUse: 'Use this',
+        versionsCurrentSource: 'current',
+        versionsAttention: 'Needs attention',
+        versionsUpgradable: 'Upgradable',
+        versionsInstalledCount: 'Installed',
+        versionsCopied: 'Diagnostics copied',
+        versionsCopyFail: 'Could not copy',
+        versionsDiagnostics: 'Copy diagnostics',
+        versionsCustomSource: 'Custom registry',
+        displayGroup: 'Where it shows',
+        displayHint: 'Turning one off stops registering that surface; the plugin reloads itself in place, no DSH restart',
+        showSettings: 'Settings → Plugin updates',
+        showRow: 'The row in the plugins page',
+        showBundle: 'Plugin config page',
+        showTab: 'Plugins page "Versions" tab',
       maxPerCycle: 'Installs per cycle',
       maxPerCycleHint: '0 means no limit. pnpm holds a lock for the whole install, so a cap bounds how long the profile stays busy; the rest wait for the next cycle',
       sessionIdle: 'Session quiet window (minutes)',
@@ -719,6 +769,41 @@ window.__ModuleLoader__.load({
 @media (prefers-reduced-motion:reduce){.dsh-au-toast{animation:none}}
 `
 
+    /* ── 显示位置 ─────────────────────────────────────────────────────────
+     *
+     * 四个挂载点各自可以被关掉。麻烦在于「挂不挂」是在 apply() 里决定的，
+     * 而 apply() 是同步的、拿不到后端的设置——设置要等 /state 回来。
+     *
+     * 所以把选择在 localStorage 里存一份镜像：设置页每次拿到 /state 就刷一次，
+     * apply() 同步读它。改完显示开关后后端会让插件就地重载一次，apply() 重新跑，
+     * 读到的就是新值——不需要重启 DSH。
+     *
+     * 读不到（第一次装、换浏览器）时全部按「显示」，和改造前一致。
+     */
+    const DISPLAY_KEY = 'dsh-aupdate:display'
+    const DISPLAY_FIELDS = ['showSettingsSection', 'showPluginsRow', 'showPluginsBundle', 'showVersionsTab']
+
+    function readDisplay() {
+      const value = { showSettingsSection: true, showPluginsRow: true, showPluginsBundle: true, showVersionsTab: true }
+      try {
+        const raw = window.localStorage.getItem(DISPLAY_KEY)
+        if (raw === null) return value
+        const parsed = JSON.parse(raw)
+        for (const key of DISPLAY_FIELDS) {
+          if (typeof parsed?.[key] === 'boolean') value[key] = parsed[key]
+        }
+      } catch {}
+      return value
+    }
+
+    function writeDisplay(settings) {
+      try {
+        const value = {}
+        for (const key of DISPLAY_FIELDS) value[key] = settings?.[key] !== false
+        window.localStorage.setItem(DISPLAY_KEY, JSON.stringify(value))
+      } catch {}
+    }
+
     /** 只注入一次：id 存在就跳过，重复挂载/热更新都不会叠出第二份样式表。 */
     function installStyles() {
       try {
@@ -1060,6 +1145,8 @@ window.__ModuleLoader__.load({
           applyLang(next?.settings?.lang)
           setState(next)
           setDraft(next.settings)
+          // 把显示选择镜像到 localStorage：apply() 下次重载时同步读它。
+          writeDisplay(next.settings)
           setPhase('ready')
         } catch {
           setPhase('error')
@@ -1370,6 +1457,16 @@ window.__ModuleLoader__.load({
             h('span', null, T.dshVersion + ': ' + (state?.dshVersion ?? '—')),
             h('span', null, T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry)),
           ),
+        ),
+        // 显示位置：四个挂载点各自可以关掉。设置本身存在后端，客户端只是把它镜像
+        // 到 localStorage，供 apply() 在注册槽位时同步判断（见 readDisplay 的注释）。
+        h('div', { className: S.card },
+          h('h3', { className: S.h }, T.displayGroup),
+          h('p', { className: S.note }, T.displayHint),
+          h(SwitchRow, { label: T.showSettings, value: draft.showSettingsSection !== false, onChange: (v) => patch('showSettingsSection', v) }),
+          h(SwitchRow, { label: T.showRow, value: draft.showPluginsRow !== false, onChange: (v) => patch('showPluginsRow', v) }),
+          h(SwitchRow, { label: T.showBundle, value: draft.showPluginsBundle !== false, onChange: (v) => patch('showPluginsBundle', v) }),
+          h(SwitchRow, { label: T.showTab, value: draft.showVersionsTab !== false, onChange: (v) => patch('showVersionsTab', v) }),
         ),
         h('div', { className: S.card },
           h('h3', { className: S.h }, T.keepTitle),
@@ -1827,34 +1924,113 @@ window.__ModuleLoader__.load({
      * 版本列表按包按需拉（一次一个包），不进首屏：整页一次拉一堆包的 packument
      * 在镜像上会慢到没法用。
      */
+    /**
+     * 「版本管理」标签页。
+     *
+     * 复刻 dsh-plugin-upgrader 那个「版本」页的主干：一眼看清哪些能升、哪些有问题，
+     * 一键升级 / 勾选升级，展开看全部已发布版本并切过去，装源开关与测源，复制诊断；
+     * 再把 aupdate 自己的设置嵌进来，免得在两处之间来回跳。
+     *
+     * 和设置页的分工没变：设置页管「什么时候自动升」，这一页管「现在就要某一版」。
+     */
     function VersionsTab() {
       useLang()
       const [state, setState] = useState(null)
       const [query, setQuery] = useState('')
+      const [picked, setPicked] = useState({})
       const [openName, setOpenName] = useState('')
       const [lists, setLists] = useState({})
       const [loadError, setLoadError] = useState('')
       const [busy, setBusy] = useState('')
       const [hint, setHint] = useState('')
+      const [showSettings, setShowSettings] = useState(false)
+      const [showSources, setShowSources] = useState(false)
+      const [sourceUrl, setSourceUrl] = useState('')
+      const [testing, setTesting] = useState('')
+      const [tested, setTested] = useState(null)
 
       const reload = useCallback(async () => {
         try {
-          setState(await getState(LANG))
+          const next = await getState(LANG)
+          setState(next)
+          writeDisplay(next?.settings)
         } catch {}
       }, [])
 
       useEffect(() => { void reload() }, [reload])
 
-      // 切版本可能要好几分钟（pnpm 要校验锁文件），期间才轮询；闲着时一个请求都不发。
+      // 空闲时 15 秒拉一次 /state（不碰 registry），够让统计跟上后台轮次；
+      // 切版本/跑一轮期间改回 3 秒，进度才跟得上。
       useEffect(() => {
-        if (busy === '') return undefined
-        const timer = setInterval(async () => {
-          try {
-            setState(await getState(LANG))
-          } catch {}
-        }, 3000)
+        const every = busy === '' ? 15000 : 3000
+        const timer = setInterval(() => { void reload() }, every)
         return () => clearInterval(timer)
-      }, [busy])
+      }, [busy, reload])
+
+      const post = useCallback(async (path, body) => {
+        try {
+          const response = await fetch(endpoint(path) + langQuery(), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify(body),
+          })
+          const payload = await response.json().catch(() => null)
+          return { ok: response.ok, payload }
+        } catch {
+          return { ok: false, payload: null }
+        }
+      }, [])
+
+      const packages = useMemo(() => (Array.isArray(state?.packages) ? state.packages : []), [state])
+      const rows = useMemo(() => {
+        const needle = query.trim().toLowerCase()
+        return needle === '' ? packages : packages.filter((item) => String(item.name).toLowerCase().includes(needle))
+      }, [packages, query])
+
+      // 最近一轮里「查到的可更新版本」和「镜像落后」：都用名字索引，行上直接查。
+      const updatable = useMemo(() => {
+        const mark = new Map()
+        for (const item of (Array.isArray(state?.lastRun?.updates) ? state.lastRun.updates : [])) {
+          const row = describeUpdate(item)
+          if (row !== null) mark.set(row.name, row.versions)
+        }
+        return mark
+      }, [state])
+      const lagged = useMemo(() => {
+        const mark = new Map()
+        for (const item of (Array.isArray(state?.lastRun?.lagged) ? state.lastRun.lagged : [])) {
+          if (item !== null && typeof item === 'object' && typeof item.name === 'string') {
+            mark.set(item.name, (item.mirror || '?') + ' → ' + (item.upstream || '?'))
+          }
+        }
+        return mark
+      }, [state])
+
+      const attention = useMemo(() => packages.filter((item) => item.ok === false || item.version === ''), [packages])
+      const pickedNames = useMemo(() => packages.filter((item) => picked[item.name] === true).map((item) => item.name), [packages, picked])
+
+      const copyDiagnostics = useCallback(async () => {
+        const lines = [
+          T.versionsTitle + ' — dsh-aupdate ' + (state?.version ?? '?'),
+          'DSH ' + (state?.dshVersion ?? 'unknown'),
+          T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry),
+          '',
+        ]
+        for (const item of packages) {
+          const flags = []
+          if (item.ok === false) flags.push('needs DSH ' + (item.need || '?'))
+          if (item.version === '') flags.push('not installed')
+          if (updatable.get(item.name) !== undefined) flags.push('updatable -> ' + updatable.get(item.name))
+          if (lagged.get(item.name) !== undefined) flags.push('mirror lag -> ' + lagged.get(item.name))
+          lines.push('- ' + item.name + ' ' + (item.version || '?') + (flags.length > 0 ? '  ' + flags.join('; ') : ''))
+        }
+        try {
+          await navigator.clipboard.writeText(lines.join(String.fromCharCode(10)))
+          setHint(T.versionsCopied)
+        } catch {
+          setHint(T.versionsCopyFail)
+        }
+      }, [state, packages, updatable, lagged])
 
       const openVersions = useCallback(async (name) => {
         if (openName === name) {
@@ -1881,37 +2057,45 @@ window.__ModuleLoader__.load({
         if (busy !== '') return
         setBusy(name + '@' + version)
         setHint('')
-        try {
-          const response = await fetch(endpoint('switch') + langQuery(), {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', accept: 'application/json' },
-            body: JSON.stringify({ name, version }),
+        const { ok, payload } = await post('switch', { name, version })
+        if (ok) {
+          setHint(payload?.unchanged === true ? T.versionsNoop : T.versionsDone.replace('{v}', version))
+          setLists((prev) => {
+            const next = { ...prev }
+            delete next[name]
+            return next
           })
-          const payload = await response.json().catch(() => null)
-          if (response.ok) {
-            setHint(payload?.unchanged === true ? T.versionsNoop : T.versionsDone.replace('{v}', version))
-            // 版本变了，这个包的缓存列表要作废，否则「当前」标记还停在旧版本上。
-            setLists((prev) => {
-              const next = { ...prev }
-              delete next[name]
-              return next
-            })
-            await reload()
-          } else {
-            setHint(T.versionsFail + ' · ' + (payload?.reason || payload?.detail || ('HTTP ' + response.status)))
-          }
-        } catch {
-          setHint(T.versionsFail)
-        } finally {
-          setBusy('')
+        } else {
+          setHint(T.versionsFail + ' · ' + (payload?.reason || payload?.detail || ''))
         }
-      }, [busy, reload])
+        setBusy('')
+        await reload()
+      }, [busy, post, reload])
 
-      const packages = useMemo(() => {
-        const all = Array.isArray(state?.packages) ? state.packages : []
-        const text = query.trim().toLowerCase()
-        return text === '' ? all : all.filter((item) => String(item.name).toLowerCase().includes(text))
-      }, [state, query])
+      const runCycle = useCallback(async (mode, names, fresh) => {
+        if (busy !== '') return
+        setBusy('cycle')
+        setHint('')
+        const { ok, payload } = await post('run', { mode, names: names ?? [], fresh: fresh === true })
+        if (!ok) setHint(T.versionsFail)
+        else if (payload?.started === false) setHint(payload?.reason || T.running)
+        else setHint(T.runDone)
+        setBusy('')
+        await reload()
+      }, [busy, post, reload])
+
+      const chooseSource = useCallback(async (mode) => {
+        await post('state', { registryMode: mode })
+        await reload()
+      }, [post, reload])
+
+      const testSource = useCallback(async (url) => {
+        setTesting(url)
+        setTested(null)
+        const { ok, payload } = await post('registry/test', { url })
+        setTested({ url, ok: ok && payload?.ok === true, ms: payload?.ms ?? 0 })
+        setTesting('')
+      }, [post])
 
       const progress = state?.progress
       const runningText = (() => {
@@ -1925,12 +2109,44 @@ window.__ModuleLoader__.load({
         if (progress.phase === 'applying') return T.progressApply
         return T.running
       })()
+      const sourceRows = [
+        { mode: 'pnpm', label: T.regPnpm, url: '' },
+        { mode: 'npmjs', label: T.regNpmjs, url: 'https://registry.npmjs.org' },
+        { mode: 'mirror', label: T.regMirror, url: 'https://registry.npmmirror.com' },
+      ]
+      const activeMode = state?.settings?.registryMode ?? 'pnpm'
 
       return h('div', { className: S.wrap },
         h('div', { className: S.head },
           h('h3', { className: S.title }, T.versionsTitle),
           h('p', { className: S.sub }, T.versionsSubtitle),
         ),
+        // 概览：需处理 / 可升级 / 已装。刻意只留三个能让人立刻行动的数字。
+        h('div', { className: S.card },
+          h('div', { className: S.cards },
+            h('div', { className: S.stat },
+              h('span', { className: S.statK }, T.versionsAttention),
+              h('span', { className: S.statV }, String(attention.length)),
+              h('span', { className: S.hint }, attention.length > 0 ? attention.slice(0, 2).map((item) => item.name).join('、') : T.versionsEmpty),
+            ),
+            h('div', { className: S.stat },
+              h('span', { className: S.statK }, T.versionsUpgradable),
+              h('span', { className: S.statV }, String(updatable.size)),
+              h('span', { className: S.hint }, state?.lastRun?.at ? formatWhen(state.lastRun.at) : T.never),
+            ),
+            h('div', { className: S.stat },
+              h('span', { className: S.statK }, T.versionsInstalledCount),
+              h('span', { className: S.statV }, String(packages.length)),
+              h('span', { className: S.hint }, T.versionsCount.replace('{n}', String(packages.length))),
+            ),
+          ),
+          h('div', { className: S.meta },
+            h('span', null, T.dshVersion + ': ' + (state?.dshVersion ?? '—')),
+            h('span', null, T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry)),
+          ),
+          progress ? h('span', { className: 'dsh-au-badge run' }, runningText) : null,
+        ),
+        // 工具条
         h('div', { className: S.card },
           h('div', { className: S.vhead },
             h('input', {
@@ -1941,34 +2157,98 @@ window.__ModuleLoader__.load({
               className: S.search,
               style: { flex: '1 1 200px' },
             }),
-            h('span', { className: S.hint }, T.versionsCount.replace('{n}', String(packages.length))),
+            h('div', { className: S.actions },
+              h('button', { type: 'button', className: S.btn, disabled: busy !== '', onClick: () => void runCycle('check', [], true) }, T.versionsChecks),
+              h('button', { type: 'button', className: S.btnPrimary, disabled: busy !== '', onClick: () => void runCycle('update', [], true) }, T.versionsUpgradeAll),
+              h('button', { type: 'button', className: S.btn, disabled: busy !== '' || pickedNames.length === 0, onClick: () => void runCycle('update', pickedNames, false) }, T.versionsUpgradePicked.replace('{n}', String(pickedNames.length))),
+              h('button', { type: 'button', className: S.btn, onClick: () => setShowSources((v) => !v) }, T.versionsSources),
+              h('button', { type: 'button', className: S.btn, onClick: () => void copyDiagnostics() }, T.versionsDiagnostics),
+              h('button', { type: 'button', className: S.btn, onClick: () => setShowSettings((v) => !v) }, showSettings ? T.versionsHideSettings : T.versionsSettings),
+            ),
           ),
-          h('div', { className: S.meta },
-            h('span', null, T.dshVersion + ': ' + (state?.dshVersion ?? '—')),
-            h('span', null, T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry)),
-          ),
-          progress ? h('span', { className: 'dsh-au-badge run' }, runningText) : null,
           hint ? h('span', { className: S.status }, hint) : null,
           loadError ? h('p', { className: S.err }, loadError) : null,
-          packages.length === 0
+        ),
+        // 注册表：预设三档 + 自定义，每行能单独测。
+        showSources
+          ? h('div', { className: S.card },
+              h('h3', { className: S.h }, T.versionsSources),
+              sourceRows.map((row) => h('div', { key: row.mode, className: S.vrow },
+                h('span', { className: S.vnum, style: { minWidth: '110px' } }, row.label),
+                h('span', { className: S.dim, style: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, row.url === '' ? T.regPnpm : row.url),
+                activeMode === row.mode ? h('span', { className: S.pivot }, T.versionsCurrentSource) : null,
+                row.url === ''
+                  ? null
+                  : h('button', { type: 'button', className: S.btn, disabled: testing !== '', onClick: () => void testSource(row.url) }, testing === row.url ? T.versionsTesting : T.versionsTest),
+                activeMode === row.mode
+                  ? null
+                  : h('button', { type: 'button', className: S.btn, onClick: () => void chooseSource(row.mode) }, T.versionsUse),
+              )),
+              h('div', { className: S.row, style: { marginTop: '4px' } },
+                h('div', { className: S.labelBox },
+                  h('span', { className: S.label }, T.versionsCustomSource),
+                  h('span', { className: S.hint }, T.regUrlHint),
+                ),
+                h('input', {
+                  type: 'url',
+                  value: sourceUrl,
+                  placeholder: 'https://registry.example.com',
+                  onChange: (event) => setSourceUrl(event.target.value),
+                  className: S.url,
+                }),
+              ),
+              h('div', { className: S.actions },
+                h('button', { type: 'button', className: S.btn, disabled: sourceUrl.trim() === '' || testing !== '', onClick: () => void testSource(sourceUrl.trim()) }, T.versionsTest),
+                h('button', {
+                  type: 'button',
+                  className: S.btn,
+                  disabled: sourceUrl.trim() === '',
+                  onClick: async () => {
+                    await post('state', { registryMode: 'custom', registryUrl: sourceUrl.trim() })
+                    await reload()
+                  },
+                }, T.versionsUse),
+              ),
+              tested === null
+                ? null
+                : h('p', { className: tested.ok ? S.note : S.err }, tested.url + ' · ' + (tested.ok ? T.versionsTestOk.replace('{ms}', String(tested.ms)) : T.versionsTestFail)),
+            )
+          : null,
+        // 设置内嵌：不用为了改一处设置离开这一页。
+        showSettings
+          ? h('div', { className: S.card }, h(AutoUpdateCard), null)
+          : null,
+        // 包列表：勾选 → 升级选中；展开 → 全部版本 → 切过去。
+        h('div', { className: S.card },
+          rows.length === 0
             ? h('span', { className: S.status }, T.versionsEmpty)
             : h('div', { className: S.scrollList },
-                packages.map((item) => {
+                rows.map((item) => {
                   const listed = lists[item.name]
                   const expanded = openName === item.name
+                  const behind = lagged.get(item.name)
+                  const next = updatable.get(item.name)
                   return h('div', { key: item.name, style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
                     h('div', { className: S.row },
-                      h('div', { className: S.labelBox },
-                        h('span', { title: item.name }, item.name),
-                        h('span', { className: S.hint },
-                          T.versionsInstalled + ' ' + (item.version === '' ? '—' : item.version) +
-                          (listed && listed.tagVersion !== '' ? ' · ' + T.versionsLatest + ' ' + listed.tagVersion : '')),
+                      h('div', { className: S.pkgRow, style: { flex: '1 1 auto', padding: '2px 0' } },
+                        h('input', {
+                          type: 'checkbox',
+                          className: S.check,
+                          checked: picked[item.name] === true,
+                          onChange: (event) => setPicked((prev) => ({ ...prev, [item.name]: event.target.checked })),
+                        }),
+                        h('div', { className: S.labelBox, style: { flex: '1 1 auto' } },
+                          h('span', { title: item.name }, item.name),
+                          h('span', { className: S.hint },
+                            T.versionsInstalled + ' ' + (item.version === '' ? '—' : item.version) +
+                            (next !== undefined ? ' · ' + T.versionsLatest + ' ' + next : '') +
+                            (behind !== undefined ? ' · ' + T.lagTitle + ' ' + behind : '')),
+                        ),
                       ),
-                      h('button', {
-                        type: 'button',
-                        className: expanded ? S.btn : S.btn,
-                        onClick: () => void openVersions(item.name),
-                      }, expanded ? T.versionsHide : T.versionsShow),
+                      item.ok === false ? h('span', { className: S.bad, title: T.versionsNeed.replace('{r}', item.need || '?') }, T.versionsBlocked) : null,
+                      item.version === '' ? h('span', { className: S.pivot }, T.pkgsNotInstalled) : null,
+                      next !== undefined ? h('span', { className: S.pivot }, T.versionsUpgradable) : null,
+                      h('button', { type: 'button', className: S.btn, onClick: () => void openVersions(item.name) }, expanded ? T.versionsHide : T.versionsShow),
                     ),
                     expanded
                       ? listed === undefined
@@ -1984,9 +2264,7 @@ window.__ModuleLoader__.load({
                                 isCurrent ? h('span', { className: S.pivot }, T.versionsCurrent) : null,
                                 row.version === listed.latest && !isCurrent ? h('span', { className: S.pivot }, T.versionsLatest) : null,
                                 row.deprecated === true ? h('span', { className: S.dim }, T.versionsDeprecated) : null,
-                                blocked
-                                  ? h('span', { className: S.bad, title: T.versionsNeed.replace('{r}', row.need || '?') }, T.versionsBlocked)
-                                  : null,
+                                blocked ? h('span', { className: S.bad, title: T.versionsNeed.replace('{r}', row.need || '?') }, T.versionsBlocked) : null,
                                 h('div', { className: S.vact },
                                   isCurrent
                                     ? null
@@ -2017,36 +2295,48 @@ window.__ModuleLoader__.load({
         installStyles()
         // 提醒跟着插件一起上、一起卸：ctx.effect 收的是清理函数。
         if (typeof ctx.effect === 'function') ctx.effect(startUpdateNotifier, 'dsh-aupdate: update notices')
+        // 「显示位置」：关掉的那一处干脆不注册槽位，而不是挂上去再渲染成空——
+        // 后者会在标签栏/设置导航里留下一个点进去什么都没有的空条目。
+        const display = readDisplay()
+
         // key 的格式是「包名#条目id」：本插件在 cordis.patch.yml 里的条目 id 就是包名本身，
         // 和 dsh-ops 的 dsh-ops#dsh-ops 一样。写成 #auto-update 之类是挂不上的。
-        ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
-          name: 'plugins.row.config',
-          key: NS + '#' + NS,
-        }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
+        if (display.showPluginsRow) {
+          ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+            name: 'plugins.row.config',
+            key: NS + '#' + NS,
+          }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
+        }
 
         // bundle 级配置页用包名做 key，和 free-search 的写法一致。
-        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-          name: 'plugins.bundle.config',
-          key: NS,
-        }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
+        if (display.showPluginsBundle) {
+          ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+            name: 'plugins.bundle.config',
+            key: NS,
+          }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
+        }
 
         // 设置 → 插件更新：挂成独立的一页，写法照抄 dsh-our-free-model-balance-zxp
         // 的「渠道余额」。原来只有插件页里那张卡，想改策略得先去插件页翻它。
-        ctx.slots.inject('settings.section', () => ctx.slots.register({
-          name: 'settings.section',
-          id: NS,
-          order: 36,
-          label: () => T.pageLabel,
-        }, () => h(AutoUpdateCard)))
+        if (display.showSettingsSection) {
+          ctx.slots.inject('settings.section', () => ctx.slots.register({
+            name: 'settings.section',
+            id: NS,
+            order: 36,
+            label: () => T.pageLabel,
+          }, () => h(AutoUpdateCard)))
+        }
 
         // 插件页标签栏多一个「版本管理」：和设置页分工——设置页管「什么时候自动升」，
         // 这一页管「现在就要某一版」。order 2 排在「已安装/发现」(0) 和市场(1) 之后。
-        ctx.slots.inject('plugins.tab', () => ctx.slots.register({
-          name: 'plugins.tab',
-          id: NS,
-          order: 2,
-          label: () => T.versionsTab,
-        }, () => h(VersionsTab)))
+        if (display.showVersionsTab) {
+          ctx.slots.inject('plugins.tab', () => ctx.slots.register({
+            name: 'plugins.tab',
+            id: NS,
+            order: 2,
+            label: () => T.versionsTab,
+          }, () => h(VersionsTab)))
+        }
       },
     }
   },
