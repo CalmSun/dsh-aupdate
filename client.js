@@ -164,7 +164,8 @@ window.__ModuleLoader__.load({
         versionsNoop: '已经是这一版',
         versionsFail: '切换失败',
         versionsTotal: '共 {n} 个版本',
-        versionsChecks: '检查更新',
+        versionsCheckInstall: '检查并安装',
+        versionsCheckOnly: '只检查',
         versionsUpgradeAll: '一键升级',
         versionsUpgradePicked: '升级选中 {n}',
         versionsSources: '注册表',
@@ -369,7 +370,8 @@ window.__ModuleLoader__.load({
         versionsNoop: 'Already on this version',
         versionsFail: 'Switch failed',
         versionsTotal: '{n} versions',
-        versionsChecks: 'Check now',
+        versionsCheckInstall: 'Check and install',
+        versionsCheckOnly: 'Check only',
         versionsUpgradeAll: 'Upgrade all',
         versionsUpgradePicked: 'Upgrade {n}',
         versionsSources: 'Registries',
@@ -1992,10 +1994,6 @@ window.__ModuleLoader__.load({
       }, [])
 
       const packages = useMemo(() => (Array.isArray(state?.packages) ? state.packages : []), [state])
-      const rows = useMemo(() => {
-        const needle = query.trim().toLowerCase()
-        return needle === '' ? packages : packages.filter((item) => String(item.name).toLowerCase().includes(needle))
-      }, [packages, query])
 
       // 最近一轮里「查到的可更新版本」和「镜像落后」：都用名字索引，行上直接查。
       const updatable = useMemo(() => {
@@ -2015,6 +2013,23 @@ window.__ModuleLoader__.load({
         }
         return mark
       }, [state])
+
+      // 「自动安装」关掉时，把查到的可更新项顶到最上面：这时「看得见」就等于「要不要动手」，
+      // 埋在一屏之外的长列表里等于没查到。开着自动安装时它们会被装掉，不需要这个排序。
+      const autoApply = state?.settings?.autoApply !== false
+      const ordered = useMemo(() => {
+        const filtered = (() => {
+          const needle = query.trim().toLowerCase()
+          return needle === '' ? packages : packages.filter((item) => String(item.name).toLowerCase().includes(needle))
+        })()
+        if (autoApply) return filtered
+        return filtered.slice().sort((a, b) => {
+          const ua = updatable.has(a.name) ? 0 : 1
+          const ub = updatable.has(b.name) ? 0 : 1
+          if (ua !== ub) return ua - ub
+          return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+        })
+      }, [packages, query, autoApply, updatable])
 
       const attention = useMemo(() => packages.filter((item) => item.ok === false || item.version === ''), [packages])
       const pickedNames = useMemo(() => packages.filter((item) => picked[item.name] === true).map((item) => item.name), [packages, picked])
@@ -2082,11 +2097,11 @@ window.__ModuleLoader__.load({
         await reload()
       }, [busy, post, reload])
 
-      const runCycle = useCallback(async (mode, names, fresh) => {
+      const runCycle = useCallback(async (mode, names, fresh, force) => {
         if (busy !== '') return
         setBusy('cycle')
         setHint('')
-        const { ok, payload } = await post('run', { mode, names: names ?? [], fresh: fresh === true })
+        const { ok, payload } = await post('run', { mode, names: names ?? [], fresh: fresh === true, force: force === true })
         if (!ok) setHint(T.versionsFail)
         else if (payload?.started === false) setHint(payload?.reason || T.running)
         else setHint(T.runDone)
@@ -2168,8 +2183,17 @@ window.__ModuleLoader__.load({
               style: { flex: '1 1 200px' },
             }),
             h('div', { className: S.actions },
-              h('button', { type: 'button', className: S.btn, disabled: busy !== '', onClick: () => void runCycle('check', [], true) }, T.versionsChecks),
-              h('button', { type: 'button', className: S.btnPrimary, disabled: busy !== '', onClick: () => void runCycle('update', [], true) }, T.versionsUpgradeAll),
+              // 主按钮的语义跟着设置走：开着自动安装时它就是「检查并安装」（查到就装），
+              // 关掉时退化成「只检查」。名字必须跟着变，否则「检查更新」不装东西会像 bug。
+              h('button', {
+                type: 'button',
+                className: S.btn,
+                disabled: busy !== '',
+                onClick: () => void runCycle(autoApply ? 'update' : 'check', [], true, autoApply),
+              }, autoApply ? T.versionsCheckInstall : T.versionsCheckOnly),
+              // 「一键升级」永远真的装：force 让它不被「自动安装」开关挡住，
+              // 但复用 10 分钟内的查询结果（fresh=false），点了就动手、不重查。
+              h('button', { type: 'button', className: S.btnPrimary, disabled: busy !== '', onClick: () => void runCycle('update', [], false, true) }, T.versionsUpgradeAll),
               h('button', { type: 'button', className: S.btn, disabled: busy !== '' || pickedNames.length === 0, onClick: () => void runCycle('update', pickedNames, false) }, T.versionsUpgradePicked.replace('{n}', String(pickedNames.length))),
               h('button', { type: 'button', className: S.btn, onClick: () => setShowSources((v) => !v) }, T.versionsSources),
               h('button', { type: 'button', className: S.btn, onClick: () => void copyDiagnostics() }, T.versionsDiagnostics),
@@ -2230,10 +2254,10 @@ window.__ModuleLoader__.load({
           : null,
         // 包列表：勾选 → 升级选中；展开 → 全部版本 → 切过去。
         h('div', { className: S.card },
-          rows.length === 0
+          ordered.length === 0
             ? h('span', { className: S.status }, T.versionsEmpty)
             : h('div', { className: S.scrollList },
-                rows.map((item) => {
+                ordered.map((item) => {
                   const listed = lists[item.name]
                   const expanded = openName === item.name
                   const behind = lagged.get(item.name)

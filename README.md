@@ -224,7 +224,17 @@ stargazers）与「分享」（复制项目地址到剪贴板，任何环境都�
 
 这一页还把 aupdate 自己的设置嵌了进来（工具条上的「设置」），改完不用切回设置页。
 
-工具条从左到右：搜索、检查更新（绕过缓存）、一键升级、升级选中 N 个、注册表、复制诊断、设置。
+工具条从左到右：搜索、主按钮、一键升级、升级选中 N 个、注册表、复制诊断、设置。
+
+主按钮的名字跟着「自动安装新版本」走：开着时叫**检查并安装**（重新查一遍 registry，查到就装），
+关掉时叫**只检查**（查到只列出来，不动手）。它以前一律叫「检查更新」、一律只查不装，于是开着
+自动安装的人点完发现什么都没装，只能再去点「一键升级」——现在名字和动作对上了。
+
+**一键升级**永远真的装：它带 `force`，不受「自动安装」这个开关限制（那个开关管的是定时轮次，
+不是人按下的按钮），并且复用 10 分钟内的查询结果，点了就动手、不重查。
+
+「自动安装」关掉时，查到的可更新插件会**排到列表最上面**：这时「看得见」就等于「要不要动手」，
+埋在一屏之外等于没查到。开着自动安装时不需要这个排序。
 顶部三个数字分别是**需处理**（已装版本声明的 DSH 范围不满足，或者读不到已装版本——这些包很可能
 根本没被加载，升级救不了它们）、**可升级**、**已装**。
 
@@ -519,7 +529,21 @@ first paint: fetching packuments for a whole page of packages is unusably slow o
 This page also embeds aupdate's own settings (the **Settings** button in the toolbar), so there is
 no need to switch back to the settings page.
 
-The toolbar is: search, Check now (bypasses the cache), Upgrade all, Upgrade the N selected,
+The toolbar is: search, the primary button, Upgrade all, Upgrade the N selected, Registries,
+Copy diagnostics, Settings.
+
+The primary button follows **Install new versions**: when that is on it reads **Check and install**
+(re-queries the registry and installs what it finds); when it is off it reads **Check only** (lists
+what is newer, touches nothing). It used to be called "Check now" and always ran a check-only pass,
+so anyone with auto-install on saw nothing installed and had to press Upgrade all afterwards.
+
+**Upgrade all** always installs: it sends `force`, so the auto-install switch does not gate it (that
+switch governs scheduled cycles, not a button someone pressed), and it reuses a lookup less than 10
+minutes old instead of re-querying.
+
+With auto-install off, plugins that can update are sorted to the top of the list: seeing them is the
+decision, and burying them below the fold is the same as not finding them. With auto-install on the
+sort is unnecessary, so the list stays alphabetical.
 Registries, Copy diagnostics, Settings. The three numbers on top are **Needs attention** (the
 installed version declares a DSH range this host does not satisfy, or the installed version is
 unreadable — those bundles are likely not loaded at all, and upgrading cannot fix them),

@@ -2249,7 +2249,9 @@ async function runCycle(mode, ctxRef, options = {}) {
       report.updates = report.updates.slice(0, settings.maxPerCycle)
       writeLog('capped', [settings.maxPerCycle, deferred])
     }
-    if (mode === 'check' || !settings.autoApply) {
+    // 手动「一键升级」传 force：用户当场点了装，就不该被「自动安装」这个开关挡住——
+    // 那个开关管的是定时轮次，不是人按下的按钮。
+    if (mode === 'check' || (!settings.autoApply && options.force !== true)) {
       report.reason = { code: 'checkOnly' }
       return report
     }
@@ -2868,6 +2870,7 @@ function registerRoutes(scope, ctxRef) {
           const report = await beginningRun(mode, ctxRef, {
             names: Array.isArray(body?.names) ? body.names : [],
             fresh: body?.fresh === true,
+            force: body?.force === true,
           })
           if (report === null) {
             sendJson(res, 200, { started: false, reason: renderReason({ code: 'alreadyRunning' }, url.searchParams.get('lang')) })
