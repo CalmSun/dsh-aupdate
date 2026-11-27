@@ -4,11 +4,11 @@
 它和 dsh-aupdate 是同类：都在插件页补「一键升级」。区别是它手动触发、把精力放在**版本可见性和安装前后的边界**上，
 aupdate 自动跑、把精力放在**调度和让开**上。
 
-这份清单是 0.8.0 的施工依据：只有能落在 aupdate 现有架构里的项才做，做了的写明代价，没做的写明为什么。
+这份清单是 0.7.5 的施工依据：只有能落在 aupdate 现有架构里的项才做，做了的写明代价，没做的写明为什么。
 
 ## 可借鉴项
 
-| 能力 | 它怎么做 | aupdate 0.8.0 | 代价 / 边界 |
+| 能力 | 它怎么做 | aupdate 0.7.5 | 代价 / 边界 |
 | --- | --- | --- | --- |
 | **按版本比 DSH 兼容性** | 装之前先查该版本 manifest 的 `engines.dsh`（没有才看 `@deepseek-ai/dsh(-*)` 的 peer），和宿主版本比 | ✅ 已实现（`compatOf`），不满足的版本不进安装队列 | 每个**候选**版本多一次几 KB 的 manifest 请求；只在「已经决定要升」时发生，不是每包每轮 |
 | **DSH 版本从哪来** | 从 `process.argv` 的入口往上找 `@deepseek-ai/dsh-app-boot/package.json` | ✅ 已实现（`dshVersion`） | 读不到就返回 null 并**不拦**：宁可漏拦，也不按猜的版本误拦 |
@@ -28,7 +28,7 @@ aupdate 自动跑、把精力放在**调度和让开**上。
 - **in-place 替换（先摘 manifest 再装）**：它靠临时改 profile 的 `package.json` 做到「不卸载换版本」，配了 journal 和写入锁。aupdate 走 `dsh plugin add pkg@version`，这条命令本身就会换版本；再自己动 manifest 等于和 plugin-manager 抢同一份文件，风险大于收益。
 - **自动写 pnpm 配置**：见上表。
 
-## 0.8.0 的验收点
+## 0.7.5 的验收点
 
 1. 没选安装源时：`/state.registry === ''`，dist-tags 仍走官方源，安装命令环境变量不变。
 2. 选镜像时：`lastRun.lagged` 能列出「镜像 x.y.z、官方 a.b.c」。
