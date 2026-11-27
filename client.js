@@ -182,12 +182,9 @@ window.__ModuleLoader__.load({
         versionsCopyFail: '复制失败',
         versionsDiagnostics: '复制诊断',
         versionsCustomSource: '自定义源',
-        displayGroup: '显示位置',
-        displayHint: '关掉哪一处就不再挂那一处；改动会让插件就地重载一次生效，不用重启 DSH',
-        showSettings: '设置 → 插件更新',
-        showRow: '插件页里的这一行',
-        showBundle: '插件配置页',
-        showTab: '插件页「版本管理」标签',
+        movedTitle: '设置页搬到插件页了',
+        movedBadge: '已搬家',
+        movedBody: '「设置 → 插件更新」不再单独占一页：设置就在插件页那张卡里；也可以在插件页顶栏「版本管理」里点「设置」。',
       maxPerCycle: '一轮最多装几个',
       maxPerCycleHint: '0 表示不限。装包会一直占着 pnpm 锁，限一个数就把单次占用封顶，剩下的下一轮接着装',
       sessionIdle: '会话静默（分钟）',
@@ -389,12 +386,9 @@ window.__ModuleLoader__.load({
         versionsCopyFail: 'Could not copy',
         versionsDiagnostics: 'Copy diagnostics',
         versionsCustomSource: 'Custom registry',
-        displayGroup: 'Where it shows',
-        displayHint: 'Turning one off stops registering that surface; the plugin reloads itself in place, no DSH restart',
-        showSettings: 'Settings → Plugin updates',
-        showRow: 'The row in the plugins page',
-        showBundle: 'Plugin config page',
-        showTab: 'Plugins page "Versions" tab',
+        movedTitle: 'Settings moved into the plugins page',
+        movedBadge: 'Moved',
+        movedBody: '"Settings → Plugin updates" is no longer a page of its own: the same controls live in the plugins-page card, and under Versions → Settings.',
       maxPerCycle: 'Installs per cycle',
       maxPerCycleHint: '0 means no limit. pnpm holds a lock for the whole install, so a cap bounds how long the profile stays busy; the rest wait for the next cycle',
       sessionIdle: 'Session quiet window (minutes)',
@@ -769,41 +763,6 @@ window.__ModuleLoader__.load({
 @media (prefers-reduced-motion:reduce){.dsh-au-toast{animation:none}}
 `
 
-    /* ── 显示位置 ─────────────────────────────────────────────────────────
-     *
-     * 四个挂载点各自可以被关掉。麻烦在于「挂不挂」是在 apply() 里决定的，
-     * 而 apply() 是同步的、拿不到后端的设置——设置要等 /state 回来。
-     *
-     * 所以把选择在 localStorage 里存一份镜像：设置页每次拿到 /state 就刷一次，
-     * apply() 同步读它。改完显示开关后后端会让插件就地重载一次，apply() 重新跑，
-     * 读到的就是新值——不需要重启 DSH。
-     *
-     * 读不到（第一次装、换浏览器）时全部按「显示」，和改造前一致。
-     */
-    const DISPLAY_KEY = 'dsh-aupdate:display'
-    const DISPLAY_FIELDS = ['showSettingsSection', 'showPluginsRow', 'showPluginsBundle', 'showVersionsTab']
-
-    function readDisplay() {
-      const value = { showSettingsSection: true, showPluginsRow: true, showPluginsBundle: true, showVersionsTab: true }
-      try {
-        const raw = window.localStorage.getItem(DISPLAY_KEY)
-        if (raw === null) return value
-        const parsed = JSON.parse(raw)
-        for (const key of DISPLAY_FIELDS) {
-          if (typeof parsed?.[key] === 'boolean') value[key] = parsed[key]
-        }
-      } catch {}
-      return value
-    }
-
-    function writeDisplay(settings) {
-      try {
-        const value = {}
-        for (const key of DISPLAY_FIELDS) value[key] = settings?.[key] !== false
-        window.localStorage.setItem(DISPLAY_KEY, JSON.stringify(value))
-      } catch {}
-    }
-
     /** 只注入一次：id 存在就跳过，重复挂载/热更新都不会叠出第二份样式表。 */
     function installStyles() {
       try {
@@ -1145,8 +1104,6 @@ window.__ModuleLoader__.load({
           applyLang(next?.settings?.lang)
           setState(next)
           setDraft(next.settings)
-          // 把显示选择镜像到 localStorage：apply() 下次重载时同步读它。
-          writeDisplay(next.settings)
           setPhase('ready')
         } catch {
           setPhase('error')
@@ -1229,11 +1186,6 @@ window.__ModuleLoader__.load({
       useEffect(() => () => {
         if (timerRef.current !== null) clearTimeout(timerRef.current)
       }, [])
-      // 显示开关一改就刷镜像：就地重载是在 1.2 秒后发生的，那时 apply() 读的
-      // 就是这份镜像——不跟着改，切换会看起来「没生效」，要再加载一次才对。
-      useEffect(() => {
-        if (draft !== null) writeDisplay(draft)
-      }, [draft])
 
 
       /** 把后端进度翻成一行中文/英文；没进度就退回普通「正在检查」。 */
@@ -1462,16 +1414,6 @@ window.__ModuleLoader__.load({
             h('span', null, T.dshVersion + ': ' + (state?.dshVersion ?? '—')),
             h('span', null, T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry)),
           ),
-        ),
-        // 显示位置：四个挂载点各自可以关掉。设置本身存在后端，客户端只是把它镜像
-        // 到 localStorage，供 apply() 在注册槽位时同步判断（见 readDisplay 的注释）。
-        h('div', { className: S.card },
-          h('h3', { className: S.h }, T.displayGroup),
-          h('p', { className: S.note }, T.displayHint),
-          h(SwitchRow, { label: T.showSettings, value: draft.showSettingsSection !== false, onChange: (v) => patch('showSettingsSection', v) }),
-          h(SwitchRow, { label: T.showRow, value: draft.showPluginsRow !== false, onChange: (v) => patch('showPluginsRow', v) }),
-          h(SwitchRow, { label: T.showBundle, value: draft.showPluginsBundle !== false, onChange: (v) => patch('showPluginsBundle', v) }),
-          h(SwitchRow, { label: T.showTab, value: draft.showVersionsTab !== false, onChange: (v) => patch('showVersionsTab', v) }),
         ),
         h('div', { className: S.card },
           h('h3', { className: S.h }, T.keepTitle),
@@ -1790,14 +1732,20 @@ window.__ModuleLoader__.load({
         .join('|')
     }
 
-    function showUpdateToast(updates, applied) {
-      if (toastOpen) return
+    /* ── 右下角通知卡 ─────────────────────────────────────────────────────
+     *
+     * 一张卡两种用途：更新提醒，和「设置页搬家」这类一次性告知。结构照
+     * dsh-cost-meter 的峰/谷提醒：圆点徽标 → 标题行（带 ×）→ 一句正文 →
+     * 可选清单 → 主按钮。
+     *
+     * 同一时刻只挂一张：两张叠在右下角会互相挡住，而这两种通知都不紧急。
+     */
+    function showNotice(options) {
       const doc = typeof document === 'undefined' ? null : document
-      if (doc === null || doc.body === null) return
-      const rows = (Array.isArray(updates) ? updates : []).map((item) => describeUpdate(item)).filter((row) => row !== null)
-      if (rows.length === 0) return
+      if (doc === null || doc.body === null) return false
+      if (toastOpen) return false
       toastOpen = true
-      // 提醒可能在设置页之外弹出来，样式表没装就先补上（幂等）。
+      // 提醒可能在任何页面弹出来，样式表没装就先补上（幂等）。
       installStyles()
       const box = doc.createElement('div')
       box.setAttribute('data-dsh-aupdate', 'toast')
@@ -1805,58 +1753,59 @@ window.__ModuleLoader__.load({
       box.setAttribute('role', 'status')
       box.setAttribute('aria-live', 'polite')
 
-      // 结构与 cost-meter 的「峰/谷切换提醒」一致：圆点徽标 → 标题行（含 ×）
-      // → 一句正文 → 清单 → 右对齐按钮。徽标是那张卡最好认的一处，这里复用它。
-      const badge = doc.createElement('div')
-      badge.className = 'dsh-au-toast-badge'
-      badge.textContent = applied > 0 ? T.toastBadge : T.toastBadgeFound
-      box.appendChild(badge)
+      if (options.badge) {
+        const badge = doc.createElement('div')
+        badge.className = 'dsh-au-toast-badge'
+        badge.textContent = options.badge
+        box.appendChild(badge)
+      }
 
       const head = doc.createElement('div')
       head.className = 'dsh-au-toast-head'
       const title = doc.createElement('div')
       title.className = 'dsh-au-toast-title'
-      // 真的装完了才说「已更新」；只查到、没动手时说「可更新」，别把「发现」说成「装了」。
-      title.textContent = (applied > 0 ? T.toastTitle : T.toastTitleFound).replace('{n}', String(rows.length))
+      title.textContent = options.title
       const xBtn = doc.createElement('button')
       xBtn.type = 'button'
       xBtn.className = 'dsh-au-toast-x'
       xBtn.textContent = '×'
-      xBtn.setAttribute('aria-label', T.toastDismiss)
+      xBtn.setAttribute('aria-label', options.dismissLabel)
       head.appendChild(title)
       head.appendChild(xBtn)
       box.appendChild(head)
 
-      const body = doc.createElement('div')
-      body.className = 'dsh-au-toast-body'
-      body.textContent = applied > 0 ? T.toastBody : T.toastBodyFound
-      box.appendChild(body)
-
-      const list = doc.createElement('div')
-      list.className = 'dsh-au-toast-list'
-      // 超过 12 条就在框内滚动：提醒不该占掉半屏。
-      for (const row of rows.slice(0, 12)) {
-        const line = doc.createElement('div')
-        line.className = 'dsh-au-toast-item'
-        const nameEl = doc.createElement('span')
-        nameEl.className = 'dsh-au-toast-name'
-        nameEl.textContent = row.name
-        // 包名可能很长（@scope/name），压缩它而不是压缩版本。
-        line.appendChild(nameEl)
-        if (row.versions !== '') {
-          const verEl = doc.createElement('span')
-          verEl.className = 'dsh-au-toast-ver'
-          verEl.textContent = row.versions
-          line.appendChild(verEl)
-        }
-        list.appendChild(line)
+      if (options.body) {
+        const body = doc.createElement('div')
+        body.className = 'dsh-au-toast-body'
+        body.textContent = options.body
+        box.appendChild(body)
       }
-      box.appendChild(list)
 
-      if (rows.length > 12) {
+      const rows = Array.isArray(options.rows) ? options.rows : []
+      if (rows.length > 0) {
+        const list = doc.createElement('div')
+        list.className = 'dsh-au-toast-list'
+        for (const row of rows) {
+          const line = doc.createElement('div')
+          line.className = 'dsh-au-toast-item'
+          const nameEl = doc.createElement('span')
+          nameEl.className = 'dsh-au-toast-name'
+          nameEl.textContent = row.name
+          line.appendChild(nameEl)
+          if (row.versions !== '') {
+            const verEl = doc.createElement('span')
+            verEl.className = 'dsh-au-toast-ver'
+            verEl.textContent = row.versions
+            line.appendChild(verEl)
+          }
+          list.appendChild(line)
+        }
+        box.appendChild(list)
+      }
+      if (options.more) {
         const more = doc.createElement('div')
         more.className = 'dsh-au-toast-more'
-        more.textContent = T.toastMore.replace('{n}', String(rows.length - 12))
+        more.textContent = options.more
         box.appendChild(more)
       }
 
@@ -1865,7 +1814,7 @@ window.__ModuleLoader__.load({
       const close = doc.createElement('button')
       close.type = 'button'
       close.className = 'dsh-au-btn dsh-au-primary'
-      close.textContent = T.toastDismiss
+      close.textContent = options.dismissLabel
       foot.appendChild(close)
       box.appendChild(foot)
 
@@ -1888,8 +1837,49 @@ window.__ModuleLoader__.load({
       xBtn.addEventListener('click', dismiss)
       try { doc.addEventListener('keydown', onKey, true) } catch {}
       doc.body.appendChild(box)
-      // 不点也不会一直挂着：15 秒后自己消失，省得挡住下面的界面。
-      setTimeout(dismiss, 15000)
+      // 不点也不会一直挂着：默认 15 秒，搬家的提示留长一点。
+      setTimeout(dismiss, options.ms ?? 15000)
+      return true
+    }
+
+    /** 更新提醒：把这一轮发现的版本做成一张通知卡。 */
+    function showUpdateToast(updates, applied) {
+      const rows = (Array.isArray(updates) ? updates : []).map((item) => describeUpdate(item)).filter((row) => row !== null)
+      if (rows.length === 0) return false
+      return showNotice({
+        badge: applied > 0 ? T.toastBadge : T.toastBadgeFound,
+        // 真的装完了才说「已更新」；只查到、没动手时说「可更新」。
+        title: (applied > 0 ? T.toastTitle : T.toastTitleFound).replace('{n}', String(rows.length)),
+        body: applied > 0 ? T.toastBody : T.toastBodyFound,
+        rows: rows.slice(0, 12),
+        more: rows.length > 12 ? T.toastMore.replace('{n}', String(rows.length - 12)) : '',
+        dismissLabel: T.toastDismiss,
+        ms: 15000,
+      })
+    }
+
+    /* 0.8.3 起「设置 → 插件更新」不再单独占一页：入口搬到插件页那张卡、插件配置页
+     * 和版本管理页的「设置」。这里提示一次就够，记在 localStorage 里，不然每开一次
+     * 页面都会弹。 */
+    const MOVED_KEY = 'dsh-aupdate:settings-moved'
+
+    function movedNoticePending() {
+      try { return window.localStorage.getItem(MOVED_KEY) !== '1' } catch { return false }
+    }
+
+    function markMovedNotice() {
+      try { window.localStorage.setItem(MOVED_KEY, '1') } catch {}
+    }
+
+    function showMovedNotice() {
+      return showNotice({
+        badge: T.movedBadge,
+        title: T.movedTitle,
+        body: T.movedBody,
+        rows: [],
+        dismissLabel: T.toastDismiss,
+        ms: 22000,
+      })
     }
 
     function startUpdateNotifier() {
@@ -1900,13 +1890,20 @@ window.__ModuleLoader__.load({
         try {
           const state = await getState(LANG)
           if (state?.settings?.notify !== false) {
-            const updates = Array.isArray(state?.lastRun?.updates) ? state.lastRun.updates : []
-            if (updates.length > 0) {
-              // 签名算的是「包名+版本变化」，旧格式也能算出来，不会重复弹。
-              const sig = updateSignature(updates)
-              if (sig !== notifiedMark()) {
-                markNotified(sig)
-                showUpdateToast(updates, appliedCount(state?.lastRun))
+            // 搬家提示排在前面：它只说一次，而更新提醒下一轮还会再来。
+            if (movedNoticePending() && !toastOpen) {
+              markMovedNotice()
+              showMovedNotice()
+            } else {
+              const updates = Array.isArray(state?.lastRun?.updates) ? state.lastRun.updates : []
+              if (updates.length > 0) {
+                // 签名算的是「包名+版本变化」，旧格式也能算出来，不会重复弹。
+                const sig = updateSignature(updates)
+                // 已经挂着一张卡时不标记：留到下一轮再弹，别把提醒吞掉。
+                if (sig !== notifiedMark() && !toastOpen) {
+                  markNotified(sig)
+                  showUpdateToast(updates, appliedCount(state?.lastRun))
+                }
               }
             }
           }
@@ -1958,7 +1955,6 @@ window.__ModuleLoader__.load({
         try {
           const next = await getState(LANG)
           setState(next)
-          writeDisplay(next?.settings)
         } catch {}
       }, [])
 
@@ -2300,48 +2296,38 @@ window.__ModuleLoader__.load({
         installStyles()
         // 提醒跟着插件一起上、一起卸：ctx.effect 收的是清理函数。
         if (typeof ctx.effect === 'function') ctx.effect(startUpdateNotifier, 'dsh-aupdate: update notices')
-        // 「显示位置」：关掉的那一处干脆不注册槽位，而不是挂上去再渲染成空——
-        // 后者会在标签栏/设置导航里留下一个点进去什么都没有的空条目。
-        const display = readDisplay()
-
         // key 的格式是「包名#条目id」：本插件在 cordis.patch.yml 里的条目 id 就是包名本身，
         // 和 dsh-ops 的 dsh-ops#dsh-ops 一样。写成 #auto-update 之类是挂不上的。
-        if (display.showPluginsRow) {
-          ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
-            name: 'plugins.row.config',
-            key: NS + '#' + NS,
-          }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
-        }
+        ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+          name: 'plugins.row.config',
+          key: NS + '#' + NS,
+        }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
 
         // bundle 级配置页用包名做 key，和 free-search 的写法一致。
-        if (display.showPluginsBundle) {
-          ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-            name: 'plugins.bundle.config',
-            key: NS,
-          }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
-        }
+        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+          name: 'plugins.bundle.config',
+          key: NS,
+        }, (props) => (props && props.view === 'summary' ? h(AutoUpdateSummary) : h(AutoUpdateCard))))
 
-        // 设置 → 插件更新：挂成独立的一页，写法照抄 dsh-our-free-model-balance-zxp
-        // 的「渠道余额」。原来只有插件页里那张卡，想改策略得先去插件页翻它。
-        if (display.showSettingsSection) {
-          ctx.slots.inject('settings.section', () => ctx.slots.register({
-            name: 'settings.section',
-            id: NS,
-            order: 36,
-            label: () => T.pageLabel,
-          }, () => h(AutoUpdateCard)))
-        }
-
-        // 插件页标签栏多一个「版本管理」：和设置页分工——设置页管「什么时候自动升」，
+        // 插件页标签栏多一个「版本管理」：和插件页那张卡分工——那张管「什么时候自动升」，
         // 这一页管「现在就要某一版」。order 2 排在「已安装/发现」(0) 和市场(1) 之后。
-        if (display.showVersionsTab) {
-          ctx.slots.inject('plugins.tab', () => ctx.slots.register({
-            name: 'plugins.tab',
-            id: NS,
-            order: 2,
-            label: () => T.versionsTab,
-          }, () => h(VersionsTab)))
-        }
+        ctx.slots.inject('plugins.tab', () => ctx.slots.register({
+          name: 'plugins.tab',
+          id: NS,
+          order: 2,
+          label: () => T.versionsTab,
+        }, () => h(VersionsTab)))
+
+        // 注意：这里**故意不再注册** 'settings.section'。
+        // 「设置 → 插件更新」原本是独立的一页，现在设置已经在插件页那张卡、
+        // 插件配置页和版本管理页的「设置」里了，多一个入口只是多一处要维护的地方。
+        // 想把它挂回来，取消下面这段注释即可（order 36 是原来的位置）。
+        // ctx.slots.inject('settings.section', () => ctx.slots.register({
+        //   name: 'settings.section',
+        //   id: NS,
+        //   order: 36,
+        //   label: () => T.pageLabel,
+        // }, () => h(AutoUpdateCard)))
       },
     }
   },

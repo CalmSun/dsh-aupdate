@@ -136,7 +136,8 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 插件页里的这一行有摘要和整页两种视图。**没有保存按钮**：每个改动就地落盘（攒 350ms
 合成一次请求，请求串行，不并发写同一个设置文件），落盘后立刻按新节奏重排，不用重启。
 数字框每敲一个字符都会变一次，但不会一个字符发一个请求。
-同一份界面还挂在**设置 → 插件更新**里，是独立的一页，不用先去插件页翻这张卡。
+这份界面挂在**插件页那一行**和**插件配置页**里；0.8.3 起不再单独占「设置 → 插件更新」一页，
+额外入口是插件页顶栏「版本管理」里的「设置」按钮。升级后第一次打开会弹一张一次性提示卡告诉你入口搬到哪了。
 读写走 `/api/dsh-aupdate/{state,run,rollback,logs}`。
 
 版面按 `dsh-cost-meter` 的设置页组织：一栏一栏的分区卡片、小号分区标题、浅一档的说明
@@ -225,14 +226,6 @@ stargazers）与「分享」（复制项目地址到剪贴板，任何环境都�
 「注册表」面板列出三档预设，每行能单独测（`/-/ping` 和根地址同时发，谁先答应用谁，整次 5 秒
 封顶），也能直接切过去；自定义源可以填完先测再切。
 
-## 显示位置
-
-设置页有一组开关，决定这个插件挂在哪些地方：**设置 → 插件更新**、**插件页里的那一行**、
-**插件配置页**、**插件页「版本管理」标签**。关掉的那一处干脆不注册槽位，而不是挂上去再渲染成
-空条目。
-
-「挂不挂」是在插件加载时决定的，而那时读不到后端设置，所以选择会在 localStorage 里存一份镜像
-供加载时同步读取；改完开关后插件会**就地重载**一次，新的一组槽位立刻生效，不用重启 DSH。
 
 ## 安装源与兼容性预检
 
@@ -464,8 +457,10 @@ The row in the plugins page shows a summary and a full page. There is **no Save 
 every change is persisted as you make it — coalesced into one request over 350 ms, sent
 serially so two requests never write the same settings file at once — and re-schedules
 immediately without a restart. A number field fires per keystroke; that does not become
-one request per character. The same UI is also its own page under
-**Settings → Plugin updates**, so it is not buried in the plugins page.
+one request per character. The same UI lives in **the plugins-page row** and in **the plugin config page**. Since 0.8.3 it is
+no longer its own page under **Settings → Plugin updates**; the extra entry is the **Settings**
+button inside the plugins-page Versions tab. The first time you open the app after upgrading, a
+one-shot notice says where it went.
 
 The layout follows the `dsh-cost-meter` settings page: stacked section cards, small section
 headings, one-step-muted secondary text and two button tiers. "Last run" is no longer a run
@@ -529,15 +524,6 @@ The **Registries** panel lists the three presets, each with its own Test button 
 root URL are fired together and whichever answers first wins, inside a 5 s budget) and a switch; a
 custom URL can be tested before it is used.
 
-## Where it shows
-
-A group of switches decides which surfaces this plugin occupies: **Settings → Plugin updates**,
-**the row in the plugins page**, **the plugin config page**, and **the plugins page Versions tab**.
-A disabled surface is not registered at all, rather than registered and rendered empty.
-
-Whether a slot is registered is decided at plugin load time, when the backend settings are not
-readable, so the choice is mirrored into localStorage for that synchronous read; changing a switch
-reloads the plugin in place, so the new set of slots takes effect without restarting DSH.
 
 ## Registry and compatibility pre-check
 
