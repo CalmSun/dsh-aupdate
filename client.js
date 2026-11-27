@@ -144,6 +144,8 @@ window.__ModuleLoader__.load({
         lagNote: '{n} 个插件的镜像还没同步，官方源已经有新版本',
         blockedNote: '{n} 个版本在这台 DSH 上装不了',
         versionsTab: '版本管理',
+        starPrompt: '顺手留颗 Star，作者能高兴一整天',
+        starCta: '行，给你一颗 Star',
         versionsTitle: '版本管理',
         versionsSubtitle: '每个已装插件的全部已发布版本，点一下就切过去',
         versionsSearch: '搜索插件名',
@@ -261,8 +263,6 @@ window.__ModuleLoader__.load({
         aboutRepo: '源码仓库',
         aboutFeedback: '反馈问题',
         aboutFeedbackLink: '提交问题',
-        aboutStar: '点个星',
-        aboutStarHint: '在 GitHub 上点 Star，让更多人看到',
         aboutShare: '分享',
         aboutShareHint: '复制项目地址，分享给朋友',
         aboutShareDone: '项目地址已复制',
@@ -350,6 +350,8 @@ window.__ModuleLoader__.load({
         lagNote: '{n} plugin(s) not synced to the mirror yet; upstream already has newer',
         blockedNote: '{n} version(s) cannot be installed on this DSH',
         versionsTab: 'Versions',
+        starPrompt: 'Leave a star — the author will beam all day',
+        starCta: 'Give a star',
         versionsTitle: 'Version manager',
         versionsSubtitle: 'Every published version of every installed plugin; click one to switch',
         versionsSearch: 'Search plugin names',
@@ -467,8 +469,6 @@ window.__ModuleLoader__.load({
         aboutRepo: 'Source code',
         aboutFeedback: 'Report an issue',
         aboutFeedbackLink: 'Open an issue',
-        aboutStar: 'Star',
-        aboutStarHint: 'Star on GitHub to help others find it',
         aboutShare: 'Share',
         aboutShareHint: 'Copy the project link to share',
         aboutShareDone: 'Project link copied',
@@ -749,6 +749,27 @@ window.__ModuleLoader__.load({
 /* 通知卡：照 dsh-cost-meter 的「峰/谷切换提醒」做。
  * 那张卡是「圆点徽标 + 标题 + 正文 + 右对齐按钮」，并按事件换主色；
  * 这里同一结构用于「发现可更新」，主色取 business 蓝，边框和投影都走主题。 */
+/* ── Star 条：照 dsh-free-search，整条是链接，右侧琥珀色 CTA ── */
+.dsh-au-star{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));background:rgba(255,196,0,.07);color:inherit;text-decoration:none;font-size:12.5px;line-height:1.4;transition:background .15s}
+.dsh-au-star:hover{background:rgba(255,196,0,.16)}
+.dsh-au-star:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
+.dsh-au-starIcon{font-size:15px;line-height:1}
+.dsh-au-starCta{margin-left:auto;color:#8a6d00;font-weight:600;white-space:nowrap}
+@media (prefers-color-scheme:dark){.dsh-au-star{border-color:rgba(255,255,255,.14);background:rgba(255,196,0,.09)}.dsh-au-starCta{color:#e8c15a}}
+/* ── 关于：两列键值 + 一条分隔线 + 贯穿整行的项目地址 ── */
+.dsh-au-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 22px}
+.dsh-au-kv{display:flex;align-items:baseline;justify-content:space-between;gap:10px;min-width:0;font-size:12.5px;padding:2px 0}
+.dsh-au-kv>span:first-child{color:var(--dsw-alias-label-secondary,rgba(0,0,0,.65));flex:0 0 auto}
+.dsh-au-kv>span:last-child,.dsh-au-kv>a{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-au-rule{height:1px;background:var(--dsw-alias-border-l1,rgba(128,128,128,.18));margin:4px 0}
+/* ── 列表：行更紧、悬停底色；记录单行 ── */
+.dsh-au-plist{display:flex;flex-direction:column;max-height:340px;overflow:auto}
+.dsh-au-plist>.dsh-au-row{padding:5px 2px;border-radius:6px}
+.dsh-au-plist>.dsh-au-row:hover{background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.04))}
+.dsh-au-rec{display:flex;flex-direction:column;max-height:200px;overflow:auto}
+.dsh-au-rec>.dsh-au-row{padding:5px 2px;border-radius:6px}
+.dsh-au-rec>.dsh-au-row:hover{background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.04))}
+
 .dsh-au-toast{--au-toast-accent:var(--dsw-alias-state-business-primary,#4d6bfe);position:fixed;right:16px;bottom:16px;z-index:2147483000;display:flex;flex-direction:column;gap:9px;box-sizing:border-box;width:340px;max-width:calc(100vw - 32px);padding:14px 16px;border-radius:14px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.28));background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-toast-bg,#f7f7f8));color:var(--dsw-alias-label-primary,#1f2328);box-shadow:0 14px 36px #00000038;font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;animation:dsh-au-in .22s cubic-bezier(.2,.8,.2,1)}
 .dsh-au-toast-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--au-toast-accent)}
 .dsh-au-toast-badge:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 0 4px color-mix(in srgb,currentColor 16%,transparent);flex:0 0 auto}
@@ -827,7 +848,7 @@ window.__ModuleLoader__.load({
       pkgVer: 'dsh-au-pkgver',
       link: 'dsh-au-link',
       linkExt: 'dsh-au-linkext',
-      ver: 'dsh-au-num',
+      num: 'dsh-au-num',
     }
     function Toggle(props) {
       const { checked, onChange, disabled } = props
@@ -1022,6 +1043,7 @@ window.__ModuleLoader__.load({
       useLang()
       const [shareHint, setShareHint] = useState('')
       const version = props.version || ''
+      const dshVersion = props.dshVersion || ''
 
       const extLink = (href, label) => h('a', {
         href,
@@ -1043,43 +1065,25 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // 两列键值：同类相邻（版本/DSH 版本、更新日志/源码仓库、反馈/分享）。
+      // 「点个星」不在这里了——Star 条在整页最底下。
+      const kv = (key, label, value) => h('div', { className: 'dsh-au-kv', key },
+        h('span', null, label),
+        value,
+      )
+
       return h('div', { className: S.card },
         h('h3', { className: S.h }, T.about),
-        h('div', { className: S.row },
-          h('span', { className: S.label }, T.aboutVersion),
-          h('span', { className: S.ver }, version === '' ? '…' : 'v' + version),
+        h('div', { className: 'dsh-au-grid2' },
+          kv('version', T.aboutVersion, h('span', { className: S.num }, version === '' ? '…' : 'v' + version)),
+          kv('dsh', T.dshVersion, h('span', { className: S.num }, dshVersion === '' ? '—' : dshVersion)),
+          kv('changelog', T.aboutChangelog, extLink(CHANGELOG_URL, T.aboutChangelogLink)),
+          kv('repo', T.aboutRepo, extLink(REPO_URL, 'GitHub')),
+          kv('feedback', T.aboutFeedback, extLink(ISSUES_URL, T.aboutFeedbackLink)),
+          kv('share', T.aboutShare, h('button', { type: 'button', className: S.btn, onClick: () => void share() }, T.aboutShare)),
         ),
-        h('div', { className: S.row },
-          h('span', { className: S.label }, T.aboutChangelog),
-          extLink(CHANGELOG_URL, T.aboutChangelogLink),
-        ),
-        h('div', { className: S.row },
-          h('span', { className: S.label }, T.aboutRepo),
-          extLink(REPO_URL, 'GitHub'),
-        ),
-        h('div', { className: S.row },
-          h('span', { className: S.label }, T.aboutFeedback),
-          extLink(ISSUES_URL, T.aboutFeedbackLink),
-        ),
-        h('div', { className: S.row },
-          h('span', { className: S.labelBox },
-            h('span', { className: S.label }, T.aboutStar),
-            h('span', { className: S.hint }, T.aboutStarHint),
-          ),
-          extLink(STARS_URL, 'GitHub'),
-        ),
-        h('div', { className: S.row },
-          h('span', { className: S.labelBox },
-            h('span', { className: S.label }, T.aboutShare),
-            h('span', { className: S.hint }, T.aboutShareHint),
-          ),
-          h('button', { type: 'button', className: S.btn, onClick: () => void share() }, T.aboutShare),
-        ),
-        // 项目地址可点开、可选中复制，失败时用户还有这一条路。
-        h('div', { className: S.row },
-          h('span', { className: S.label }, T.aboutProject),
-          extLink(REPO_URL, REPO_URL.replace('https://', '')),
-        ),
+        h('div', { className: 'dsh-au-rule' }),
+        kv('url', T.aboutProject, extLink(REPO_URL, REPO_URL.replace('https://', ''))),
         shareHint ? h('span', { className: S.status }, shareHint) : null,
       )
     }
@@ -1090,13 +1094,6 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState(null)
       const [phase, setPhase] = useState('loading') // loading | ready | error
       const [saveHint, setSaveHint] = useState('')
-      const [running, setRunning] = useState(false)
-      // 安装可能耗好几分钟（网络重试时更久），运行按钮旁边显示实时进度。
-      const [progress, setProgress] = useState(null)
-      const [runHint, setRunHint] = useState('')
-      const [rolling, setRolling] = useState('')
-      const [rollHint, setRollHint] = useState('')
-      const [confirming, setConfirming] = useState('')
       const [cleaning, setCleaning] = useState(false)
       const [cleanHint, setCleanHint] = useState('')
 
@@ -1118,25 +1115,6 @@ window.__ModuleLoader__.load({
       }, [])
 
       useEffect(() => { void load() }, [load])
-
-      // 进度轮询要常驻：更新多数是定时器自动触发的，若只在点「立刻检查」时轮询，
-      // 自动跑的那一轮界面上什么也看不到——上次就是这个原因以为进度功能没生效。
-      useEffect(() => {
-        let alive = true
-        const tick = async () => {
-          try {
-            const next = await getState(LANG)
-            if (alive) {
-              setProgress(next?.progress ?? null)
-              // 别人（定时器 / 另一个窗口）触发的轮次，也把 running 点亮。
-              if (next?.progress) setRunning(true)
-            }
-          } catch {}
-        }
-        void tick()
-        const timer = setInterval(() => { void tick() }, 3000)
-        return () => { alive = false; clearInterval(timer) }
-      }, [LANG])
 
       /**
        * 立即保存。
@@ -1199,57 +1177,6 @@ window.__ModuleLoader__.load({
       }, [])
 
 
-      /** 把后端进度翻成一行中文/英文；没进度就退回普通「正在检查」。 */
-      const runningText = (() => {
-        if (!progress) return ''
-        if (progress.phase === 'installing' && progress.total > 0) {
-          return T.progressInstall
-            .replace('{n}', String(progress.index))
-            .replace('{m}', String(progress.total))
-            .replace('{name}', String(progress.name || ''))
-        }
-        if (progress.phase === 'applying') return T.progressApply
-        if (progress.phase === 'checking') return T.progressCheck
-        return T.running
-      })()
-
-      const fire = useCallback(async () => {
-        if (running) return
-        setRunning(true)
-        setRunHint(T.running)
-        try {
-          // 进度由上面的常驻轮询统一负责，这里只发请求。
-          const result = await runNow('update')
-          if (result?.started === false) {
-            // 「已经有一轮在跑」这类信息在「上一次」里没有，必须显示。
-            setRunHint(result.reason || T.runFailed)
-          } else {
-            // 只给一句「检查完成」。原因和状态已经写进「上一次」那张卡，
-            // 这里再拼一遍 reason + status 会和它逐字重复（还有英文 done）。
-            setRunHint(T.runDone)
-          }
-          // 跑完把状态刷一遍，页面上看到的就是最新结果。
-          try {
-            const next = await getState(LANG)
-            setState(next)
-            setDraft((prev) => (prev === null ? next.settings : prev))
-          } catch {}
-        } catch {
-          setRunHint(T.runFailed)
-        } finally {
-          setRunning(false)
-          // 不在这里清 progress：常驻轮询会在后端清掉后同步，手动作废会和它打架。
-        }
-      }, [running])
-
-      // 结束提示只是一次性反馈：6 秒后自己收掉，免得它一直挂在卡片里，
-      // 和下面「上一次」的原因并列成两段一样的文字。
-      useEffect(() => {
-        if (running || runHint === '') return undefined
-        const timer = setTimeout(() => setRunHint(''), 6000)
-        return () => clearTimeout(timer)
-      }, [running, runHint])
-
       const doCleanup = useCallback(async () => {
         if (cleaning) return
         setCleaning(true)
@@ -1268,32 +1195,6 @@ window.__ModuleLoader__.load({
           setCleaning(false)
         }
       }, [cleaning])
-
-      const doRollback = useCallback(async (target) => {
-        if (rolling !== '' || running) return
-        // 回滚会换掉正在跑的代码，属于不可轻点的操作，先要一次确认。
-        if (confirming !== target) {
-          setConfirming(target)
-          setRollHint('')
-          return
-        }
-        setConfirming('')
-        setRolling(target)
-        setRollHint(T.rollingBack)
-        try {
-          const result = await rollback(target)
-          setRollHint(result.ok ? T.rollbackDone + ' · ' + target : T.rollbackFailed + ' · ' + (result.payload?.reason ?? ''))
-          try {
-            const next = await getState(LANG)
-            setState(next)
-            setDraft((prev) => (prev === null ? next.settings : prev))
-          } catch {}
-        } catch {
-          setRollHint(T.rollbackFailed)
-        } finally {
-          setRolling('')
-        }
-      }, [rolling, running, confirming])
 
       if (phase === 'error') {
         return h('div', { className: S.card },
@@ -1460,112 +1361,10 @@ window.__ModuleLoader__.load({
             cleanHint ? h('span', { className: S.status }, cleanHint) : null,
           ),
         ),
-        h('div', { className: S.card },
-          // 按钮和它动作的对象放在一起：读「上一次」的人最想做的事就是再跑一次。
-          h('div', { className: S.row },
-            h('div', { className: S.labelBox },
-              h('h3', { className: S.h }, T.lastRun),
-              last === null || last === undefined ? h('span', { className: S.hint }, T.never) : null,
-            ),
-            h('button', { type: 'button', className: S.btnPrimary, disabled: running, onClick: () => void fire() }, running ? T.running : T.runNow),
-          ),
-          // 进度单独占一行：安装要几分钟甚至更久，这里明确告诉用户在装第几个。
-          progress ? h('span', { className: 'dsh-au-badge run' }, runningText) : null,
-          // 三张统计卡，照 cost-meter 概览页的写法：一眼看到「什么时候查的、
-          // 查了多少、几个能更」，而不是一串用 · 拼起来的句子。
-          last === null || last === undefined ? null : h('div', { className: S.cards },
-            h('div', { className: S.stat },
-              h('span', { className: S.statK }, T.lastChecked),
-              h('span', { className: S.statV, title: last.at || '' }, formatWhen(last.at) || '—'),
-              relativeWhen(last.at) ? h('span', { className: S.hint }, relativeWhen(last.at)) : null,
-            ),
-            h('div', { className: S.stat },
-              h('span', { className: S.statK }, T.checked),
-              h('span', { className: S.statV }, String(last.checked ?? 0)),
-              h('span', { className: S.hint }, T.packages),
-            ),
-            h('div', { className: S.stat },
-              h('span', { className: S.statK }, applied > 0 ? T.lastUpdated : T.lastUpdates),
-              h('span', { className: S.statV }, String(applied > 0 ? applied : (last.updates?.length ?? 0))),
-              // 卡片里标题已经是「已更新」，副标题只补量词，不再重复一遍「已更新」。
-              h('span', { className: S.hint }, applied > 0
-                ? T.updatedHint
-                : (last.updates?.length ?? 0) > 0 ? T.updates : T.upToDate),
-            ),
-          ),
-          // 原因只说一遍：徽标承接状态词，正文承接句子，两者不重复同一句话。
-          (() => {
-            if (last === null || last === undefined) return null
-            const reason = typeof last.reason === 'string' ? last.reason : ''
-            const status = statusLabel(last.status)
-            if (reason === '' && status === '') return null
-            return h('div', { className: S.row },
-              reason === '' ? null : h('span', { className: S.note }, reason),
-              status === '' ? null : h('span', { className: badgeClass(last.status) }, status),
-            )
-          })(),
-          // 只报「4 个可更新」不够：要看得出是哪几个、从哪版到哪版。
-          // 列表封高度、内部滚动，30 个包也不会把这张卡拉成一屏多。
-          (() => {
-            const rows = (Array.isArray(last?.updates) ? last.updates : [])
-              .map((item) => describeUpdate(item))
-              .filter((row) => row !== null)
-            if (rows.length === 0) return null
-            return h('div', { className: S.scrollList },
-              rows.map((row, index) => h('div', {
-                key: row.name + ':' + index,
-                className: 'dsh-au-line',
-              },
-                h('span', { className: S.pkgName, title: row.name }, row.name),
-                row.versions === '' ? null : h('span', { className: S.pkgVer }, row.versions),
-              )),
-            )
-          })(),
-          // 镜像落后和「装不了」都要按名字说出来：只报「已是最新」或「一个没装上」，
-          // 用户没法知道该换源还是该升 DSH。
-          (last?.lagged?.length ?? 0) > 0
-            ? h('p', { className: S.note }, T.lagNote.replace('{n}', String(last.lagged.length)) + ' · ' +
-                last.lagged.slice(0, 3).map((row) => row.name + ' ' + (row.mirror ?? '?') + ' → ' + (row.upstream ?? '?')).join('，'))
-            : null,
-          (last?.blocked?.length ?? 0) > 0
-            ? h('p', { className: S.note }, T.blockedNote.replace('{n}', String(last.blocked.length)) + ' · ' +
-                last.blocked.slice(0, 3).map((row) => row.name + '@' + (row.target ?? '?')).join('，'))
-            : null,
-          runHint ? h('span', { className: S.status }, runHint) : null,
-        ),
-        // 更新记录：谁、从哪到哪、什么时候、成没成，以及回滚入口。
-        h('div', { className: S.card },
-          h('h3', { className: S.h }, T.history),
-          (state?.history?.length ?? 0) === 0
-            ? h('span', { className: S.status }, T.historyEmpty)
-            : h('div', { className: S.scrollList },
-                state.history.map((row, index) => h('div', {
-                  key: row.name + '@' + row.at + ':' + index,
-                  className: S.row,
-                },
-                  h('div', { className: S.labelBox },
-                    h('span', null, row.name + '  ' + (row.from ?? '?') + ' → ' + (row.to ?? '?')),
-                    h('span', { className: S.hint, title: row.at || '' },
-                      formatWhen(row.at) + (relativeWhen(row.at) ? '（' + relativeWhen(row.at) + '）' : '') +
-                      (row.rolledBack === true ? ' · ' + T.rolledBack : '')),
-                  ),
-                  row.rolledBack === true || typeof row.from !== 'string' || row.from === ''
-                    ? null
-                    : h('button', {
-                        type: 'button',
-                        className: confirming === row.name ? S.btnPrimary : S.btn,
-                        disabled: rolling !== '' || running,
-                        onClick: () => void doRollback(row.name),
-                      }, rolling === row.name ? T.rollingBack : confirming === row.name ? T.rollback + '?' : T.rollback),
-                )),
-              ),
-          rollHint ? h('span', { className: S.status }, rollHint) : null,
-        ),
-        h(LogCard, null),
         // 没有保存按钮：改动自己在 350ms 后落盘，这里只报它落没落成。
         saveHint ? h('span', { className: S.status }, saveHint) : null,
         h('span', { className: S.hint }, T.scope),
-        h(AboutCard, { version: state?.version }),
+
       )
     }
 
@@ -1933,19 +1732,139 @@ window.__ModuleLoader__.load({
     /**
      * 「版本管理」标签页。
      *
-     * 和设置页的分工：设置页管「什么时候自动升」，这一页管「现在就要某一版」。
-     * 版本列表按包按需拉（一次一个包），不进首屏：整页一次拉一堆包的 packument
-     * 在镜像上会慢到没法用。
-     */
-    /**
-     * 「版本管理」标签页。
-     *
      * 复刻 dsh-plugin-upgrader 那个「版本」页的主干：一眼看清哪些能升、哪些有问题，
      * 一键升级 / 勾选升级，展开看全部已发布版本并切过去，装源开关与测源，复制诊断；
      * 再把 aupdate 自己的设置嵌进来，免得在两处之间来回跳。
      *
      * 和设置页的分工没变：设置页管「什么时候自动升」，这一页管「现在就要某一版」。
      */
+    /**
+     * 「现状」：上一次检查的结论 + 这一轮的数字。
+     *
+     * 刻意没有标题、也没有「立刻检查」按钮——工具条上已经有「检查并安装」，
+     * 同一页里再放一个重复的按钮只会让人犹豫该点哪个。时间改成第一格统计，
+     * 状态徽标跟在原因后面，四格数字就是全部要点。
+     */
+    function LastRunCard(props) {
+      useLang()
+      const last = props.state?.lastRun
+      const applied = appliedCount(last)
+      const updates = (Array.isArray(last?.updates) ? last.updates : [])
+        .map((item) => describeUpdate(item))
+        .filter((row) => row !== null)
+      const attention = Array.isArray(props.attention) ? props.attention : []
+      const progress = props.state?.progress
+      const runningText = (() => {
+        if (!progress) return ''
+        if (progress.phase === 'installing' && progress.total > 0) {
+          return T.progressInstall
+            .replace('{n}', String(progress.index))
+            .replace('{m}', String(progress.total))
+            .replace('{name}', String(progress.name || ''))
+        }
+        if (progress.phase === 'applying') return T.progressApply
+        return T.running
+      })()
+      const stat = (key, label, value, hint) => h('div', { className: S.stat, key },
+        h('span', { className: S.statK }, label),
+        h('span', { className: S.statV }, value),
+        hint ? h('span', { className: S.hint }, hint) : null,
+      )
+      const status = statusLabel(last?.status)
+      return h('div', { className: S.card },
+        h('div', { className: S.cards },
+          stat('at', T.lastChecked, formatWhen(last?.at) || '—',
+            last === null || last === undefined ? T.never : relativeWhen(last?.at) || ''),
+          stat('up', T.versionsUpgradable, String(updates.length),
+            updates.length > 0 ? updates[0].name + (updates.length > 1 ? ' …' : '') : T.upToDate),
+          stat('done', T.lastUpdated, String(applied), T.updatedHint),
+          stat('bad', T.versionsAttention, String(attention.length), attention.length > 0 ? attention[0].name : ''),
+        ),
+        progress ? h('span', { className: 'dsh-au-badge run' }, runningText) : null,
+        (last?.reason || status !== '')
+          ? h('div', { className: S.row },
+              last?.reason ? h('p', { className: S.note }, last.reason) : h('span', null),
+              status !== '' ? h('span', { className: badgeClass(last?.status) }, status) : null,
+            )
+          : null,
+        updates.length > 0
+          ? h('div', { className: S.scrollList },
+              updates.map((row, index) => h('div', { key: row.name + ':' + index, className: 'dsh-au-line' },
+                h('span', { className: S.pkgName, title: row.name }, row.name),
+                row.versions === '' ? null : h('span', { className: S.pkgVer }, row.versions),
+              )),
+            )
+          : null,
+      )
+    }
+
+    /**
+     * 「更新记录」：单行一条——包名 + 旧→新、时间靠右、回滚在最右。
+     *
+     * 原来是两行一条（名字/版本、时间），四条就吃掉半屏。回滚仍要确认一次：
+     * 第一次点只改文案，第二次才真的动手。
+     */
+    function HistoryCard(props) {
+      useLang()
+      const [rolling, setRolling] = useState('')
+      const [confirming, setConfirming] = useState('')
+      const [hint, setHint] = useState('')
+      const rows = Array.isArray(props.state?.history) ? props.state.history : []
+
+      const doRollback = async (name) => {
+        if (rolling !== '' || props.busy === true) return
+        if (confirming !== name) {
+          setConfirming(name)
+          setHint('')
+          return
+        }
+        setConfirming('')
+        setRolling(name)
+        setHint(T.rollingBack)
+        try {
+          const response = await fetch(endpoint('rollback') + langQuery(), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ name }),
+          })
+          const payload = await response.json().catch(() => null)
+          setHint(response.ok ? T.rollbackDone + ' · ' + name : T.rollbackFailed + ' · ' + (payload?.reason ?? ''))
+          if (typeof props.onReload === 'function') await props.onReload()
+        } catch {
+          setHint(T.rollbackFailed)
+        } finally {
+          setRolling('')
+        }
+      }
+
+      return h('div', { className: S.card },
+        h('h3', { className: S.h }, T.history),
+        rows.length === 0
+          ? h('span', { className: S.status }, T.historyEmpty)
+          : h('div', { className: 'dsh-au-rec' },
+              rows.map((row, index) => h('div', {
+                key: row.name + '@' + row.at + ':' + index,
+                className: S.row,
+              },
+                h('div', { className: S.pkgName, style: { flex: '1 1 auto' } },
+                  h('span', null, row.name),
+                  h('span', { className: S.num, style: { marginLeft: '6px' } }, (row.from ?? '?') + ' → ' + (row.to ?? '?')),
+                ),
+                h('span', { className: S.hint, style: { flex: '0 0 auto' }, title: row.at || '' }, formatWhen(row.at)),
+                row.rolledBack === true || typeof row.from !== 'string' || row.from === ''
+                  ? h('span', { className: S.hint, style: { minWidth: '54px', textAlign: 'right' } }, T.rolledBack)
+                  : h('button', {
+                      type: 'button',
+                      className: confirming === row.name ? S.btnPrimary : S.btn,
+                      disabled: rolling !== '' || props.busy === true,
+                      onClick: () => void doRollback(row.name),
+                    }, rolling === row.name ? T.rollingBack : confirming === row.name ? T.rollback + '?' : T.rollback),
+              )),
+            ),
+        hint ? h('span', { className: S.status }, hint) : null,
+      )
+    }
+
     function VersionsTab() {
       useLang()
       const [state, setState] = useState(null)
@@ -2146,31 +2065,9 @@ window.__ModuleLoader__.load({
           h('h3', { className: S.title }, T.versionsTitle),
           h('p', { className: S.sub }, T.versionsSubtitle),
         ),
-        // 概览：需处理 / 可升级 / 已装。刻意只留三个能让人立刻行动的数字。
-        h('div', { className: S.card },
-          h('div', { className: S.cards },
-            h('div', { className: S.stat },
-              h('span', { className: S.statK }, T.versionsAttention),
-              h('span', { className: S.statV }, String(attention.length)),
-              h('span', { className: S.hint }, attention.length > 0 ? attention.slice(0, 2).map((item) => item.name).join('、') : T.versionsEmpty),
-            ),
-            h('div', { className: S.stat },
-              h('span', { className: S.statK }, T.versionsUpgradable),
-              h('span', { className: S.statV }, String(updatable.size)),
-              h('span', { className: S.hint }, state?.lastRun?.at ? formatWhen(state.lastRun.at) : T.never),
-            ),
-            h('div', { className: S.stat },
-              h('span', { className: S.statK }, T.versionsInstalledCount),
-              h('span', { className: S.statV }, String(packages.length)),
-              h('span', { className: S.hint }, T.versionsCount.replace('{n}', String(packages.length))),
-            ),
-          ),
-          h('div', { className: S.meta },
-            h('span', null, T.dshVersion + ': ' + (state?.dshVersion ?? '—')),
-            h('span', null, T.registry + ': ' + (state?.registry === '' || !state?.registry ? T.regPnpm : state.registry)),
-          ),
-          progress ? h('span', { className: 'dsh-au-badge run' }, runningText) : null,
-        ),
+        // 现状只有数字和一句结论：标题和「立刻检查」都去掉了——工具条上已经有
+        // 「检查并安装」，同一页里放两个功能相同的按钮只会让人犹豫点哪个。
+        h(LastRunCard, { state: state, attention: attention, busy: busy !== '' }),
         // 工具条
         h('div', { className: S.card },
           h('div', { className: S.vhead },
@@ -2256,7 +2153,7 @@ window.__ModuleLoader__.load({
         h('div', { className: S.card },
           ordered.length === 0
             ? h('span', { className: S.status }, T.versionsEmpty)
-            : h('div', { className: S.scrollList },
+            : h('div', { className: 'dsh-au-plist' },
                 ordered.map((item) => {
                   const listed = lists[item.name]
                   const expanded = openName === item.name
@@ -2317,6 +2214,20 @@ window.__ModuleLoader__.load({
                   )
                 }),
               ),
+        ),
+        h(HistoryCard, { state: state, busy: busy !== '', onReload: reload }),
+        h(LogCard, null),
+        h(AboutCard, { version: state?.version, dshVersion: state?.dshVersion }),
+        // Star 条在最底下：它不参与操作，读完页面顺手露一下就够了。
+        h('a', {
+          className: 'dsh-au-star',
+          href: STARS_URL,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        },
+          h('span', { className: 'dsh-au-starIcon', 'aria-hidden': 'true' }, '⭐'),
+          h('span', null, T.starPrompt),
+          h('span', { className: 'dsh-au-starCta' }, T.starCta),
         ),
         h('span', { className: S.hint }, T.scope),
       )

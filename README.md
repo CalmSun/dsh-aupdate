@@ -169,10 +169,12 @@ mtime 为准：那是磁盘事实。会话目录整个读不到时返回「不�
 
 ### 关于 aupdate
 
-设置页底部有「关于 aupdate」信息组（照 Bloom 的「关于 Bloom」做）：版本号（从 package.json
-读取，发版不用改前端）、查看更新日志、源码仓库、提交问题，另有「点个星」（打开 GitHub
-stargazers）与「分享」（复制项目地址到剪贴板，任何环境都能用；失败时地址本身也可点开复制）。
-外链一律 `target=_blank` + `rel=noopener noreferrer`。
+「关于 aupdate」在**版本管理页**底部（0.8.6 起从设置页搬过去）：版本号、DSH 版本、查看更新日志、
+源码仓库、提交问题、分享（复制项目地址到剪贴板；失败时地址本身也能点开复制），两列排布，
+项目地址占整行。外链一律 `target=_blank` + `rel=noopener noreferrer`。
+
+「点个星」从关于里删掉了：整页最底部有一条 Star 条（和 `dsh-free-search` 同款，
+`⭐ 顺手留颗 Star，作者能高兴一整天` → 右侧 `行，给你一颗 Star`），整条就是指向仓库的链接。
 
 ### 「上一次」不会再被重启清空
 
@@ -214,7 +216,13 @@ stargazers）与「分享」（复制项目地址到剪贴板，任何环境都�
 
 ## 版本管理
 
-「插件」页顶栏多了一个「版本管理」标签：列出每个已装插件、已装版本，以及该插件的全部已发布
+「插件」页顶栏多了一个「版本管理」标签，它是这个插件的主页：**工具条**（搜索、检查并安装、
+一键升级、升级选中、注册表、复制诊断、设置）→ **现状**（上次检查时间、可升级、已更新、需处理
+四格数字，一句结论和状态徽标）→ **插件列表** → **更新记录** → **运行日志** → **关于** →
+最底部 **Star 条**。设置页只留参数调节（开关、数字、调度、安装源、兼容预检、保留期限），
+观测类内容全在这一页。
+
+下面这段是版本列表本身的说明：它列出每个已装插件、已装版本，以及该插件的全部已发布
 版本；点某一版就直接切过去。走的是和定时更新同一条安装路径——安装、回读磁盘上的版本、记一条
 更新记录、就地生效——所以切完能在「更新记录」里看到，也能再回滚回来。
 
@@ -496,11 +504,15 @@ The Last run card states the outcome once. Clicking Check now only adds a short
 the same reason plus a raw status word underneath. Status words are a localized fallback
 used only when no rendered reason exists.
 
-An **About aupdate** group sits at the bottom of the page (modeled on Bloom's About section):
-the version (read from package.json, so releases need no front-end edit), a changelog link,
-source repository, issue tracker, plus Star and Share (copies the project URL; the URL is
-also selectable if the copy fails). External links use target=_blank with
+**About aupdate** now lives at the bottom of the **Versions** tab (moved out of the settings page
+in 0.8.6): version, DSH version, changelog, source repository, issue tracker and Share (copies the
+project URL; the URL is also selectable if the copy fails), laid out as two key/value columns with
+the project URL on its own full-width row. External links use target=_blank with
 rel=noopener noreferrer.
+
+The Star row was removed from About: the very bottom of the page carries a Star bar styled after
+`dsh-free-search` (`⭐ 顺手留颗 Star，作者能高兴一整天` with `行，给你一颗 Star` on the right),
+and the whole bar links to the repository.
 
 The last run's outcome (when, how many checked, how many updatable, how many installed,
 why it failed) is persisted to `~/.dsh/aupdate-lastrun.json` and survives a restart. It
