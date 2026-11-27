@@ -728,7 +728,7 @@ window.__ModuleLoader__.load({
 .dsh-au-pkgrow:hover{background:var(--dsw-alias-bg-mask-1,rgba(128,128,128,.08))}
 .dsh-au-pkgname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-au-pkgver{flex:0 0 auto;margin-left:auto;font-size:11px;color:var(--dsw-alias-label-caption,rgba(128,128,128,.85));font-variant-numeric:tabular-nums}
-.dsh-au-log{margin:0;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.06));font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.6;max-height:288px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.dsh-au-log{margin:0;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.06));font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.6;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 .dsh-au-logtime{color:var(--dsw-alias-label-caption,rgba(128,128,128,.8));font-variant-numeric:tabular-nums}
 .dsh-au-logtext{color:inherit}
 
@@ -2065,10 +2065,7 @@ window.__ModuleLoader__.load({
           h('h3', { className: S.title }, T.versionsTitle),
           h('p', { className: S.sub }, T.versionsSubtitle),
         ),
-        // 现状只有数字和一句结论：标题和「立刻检查」都去掉了——工具条上已经有
-        // 「检查并安装」，同一页里放两个功能相同的按钮只会让人犹豫点哪个。
-        h(LastRunCard, { state: state, attention: attention, busy: busy !== '' }),
-        // 工具条
+        // 工具条在最上面：这一页的第一件事就是「查一下 / 装一下」，先给操作再看数据。
         h('div', { className: S.card },
           h('div', { className: S.vhead },
             h('input', {
@@ -2100,6 +2097,8 @@ window.__ModuleLoader__.load({
           hint ? h('span', { className: S.status }, hint) : null,
           loadError ? h('p', { className: S.err }, loadError) : null,
         ),
+        // 现状跟在工具条后面：操作之后紧接着就是它的结果，顺序和人的动作一致。
+        h(LastRunCard, { state: state, attention: attention, busy: busy !== '' }),
         // 注册表：预设三档 + 自定义，每行能单独测。
         showSources
           ? h('div', { className: S.card },
@@ -2147,7 +2146,13 @@ window.__ModuleLoader__.load({
           : null,
         // 设置内嵌：不用为了改一处设置离开这一页。
         showSettings
-          ? h('div', { className: S.card }, h(AutoUpdateCard), null)
+          ? h('div', { className: S.card },
+              h(AutoUpdateCard),
+              // 最底部再给一个收起入口：表单很长，从顶部滑走之后不用再滚回去找按钮。
+              h('div', { className: S.actions },
+                h('button', { type: 'button', className: S.btn, onClick: () => setShowSettings(false) }, T.versionsHideSettings),
+              ),
+            )
           : null,
         // 包列表：勾选 → 升级选中；展开 → 全部版本 → 切过去。
         h('div', { className: S.card },
@@ -2221,7 +2226,7 @@ window.__ModuleLoader__.load({
         // Star 条在最底下：它不参与操作，读完页面顺手露一下就够了。
         h('a', {
           className: 'dsh-au-star',
-          href: STARS_URL,
+          href: REPO_URL,
           target: '_blank',
           rel: 'noopener noreferrer',
         },
